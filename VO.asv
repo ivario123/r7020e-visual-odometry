@@ -62,12 +62,31 @@ for i = 1:length(cam0.Files)
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
+        
+           
+        
+        
+
+        
+        % Match the descriptors
+        inter_frame = matchFeatures(l_desc,r_desc);
+
         lm = matchFeatures(l_desc,features.l_desc);
         rm = matchFeatures(r_desc,features.r_desc);
-        l_desc = l_desc(lm(:,1));
+        for index = 1:length(inter_frame)
+            if isempty(find(lm(:,1) == inter_frame(index,1)))  && isempty(find(rm(:,2) == inter_frame(index,2)))
+                lm = [lm;inter_frame(index,1),0];
+                rm = [lm;inter_frame(index,1),0];
+                matched = [matched;inter_frame(index,:)]
+            end
+        end
+        
+        % possibly add features
+        l_desc = l_desc(lm(:,1),:);
         l_pos = l_pos(lm(:,1));
-        r_desc = r_desc(rm(:,1));
+        r_desc = r_desc(rm(:,1),:);
         r_pos = r_pos(rm(:,1));
+
     end
     % Match the descriptors
     matched = matchFeatures(l_desc,r_desc);
@@ -79,9 +98,9 @@ for i = 1:length(cam0.Files)
 
     ptk = min([best,length(matched) ]);
     l_pos = l_pos(matched(1:ptk,1));
-    l_pos = r_pos(matched(1:ptk,2));
-    l_desc = l_desc(matched(:,1));
-    r_desc = r_desc(matched(:,1));
+    r_pos = r_pos(matched(1:ptk,2));
+    l_desc = l_desc(matched(:,1),:);
+    r_desc = r_desc(matched(:,2),:);
 
     figure;imshow(lf);
     x = l_pos.Location(:,1);
@@ -89,7 +108,7 @@ for i = 1:length(cam0.Files)
     dist = zeros(1,length(l_pos));
 
     for itter = 1:length(dist)  
-        d = (triangulate(round(l_pos(itter).Location),round(rp(itter).Location),p1,p2));
+        d = (triangulate(round(l_pos(itter).Location),round(r_pos(itter).Location),p1,p2));
         dist(itter) = sqrt(sum(d.^2));
     end
     hold on
@@ -111,4 +130,6 @@ for i = 1:length(cam0.Files)
 
 
 end
+
+
 

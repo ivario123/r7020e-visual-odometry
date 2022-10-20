@@ -62,12 +62,30 @@ for i = 1:length(cam0.Files)
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
+        
+           
+        
+        
+
+        
+        % Match the descriptors
+        inter_frame = matchFeatures(l_desc,r_desc);
+
         lm = matchFeatures(l_desc,features.l_desc);
         rm = matchFeatures(r_desc,features.r_desc);
+        for index = 1:length(inter_frame)
+            if isempty(find(lm(:,1) == inter_frame(index,1)))  && isempty(find(rm(:,2) == inter_frame(index,2)))
+                lm = [lm;inter_frame(index,1),0];
+                rm = [rm;inter_frame(index,2),0];
+            end
+        end
+        
+        % possibly add features
         l_desc = l_desc(lm(:,1),:);
         l_pos = l_pos(lm(:,1));
         r_desc = r_desc(rm(:,1),:);
         r_pos = r_pos(rm(:,1));
+
     end
     % Match the descriptors
     matched = matchFeatures(l_desc,r_desc);
@@ -111,4 +129,6 @@ for i = 1:length(cam0.Files)
 
 
 end
+
+
 
