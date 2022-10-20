@@ -48,44 +48,95 @@ features = [];
 for i = 1:length(cam0.Files)
     lf = readimage(cam0,i);
     rf = readimage(cam1,i);
-    % Get the corrected images
-    % [l_rect,r_rect]= rectifyStereoImages(lf,rf,p1,p2);
     
     
     % Get the features
     f_l = detectSIFTFeatures(lf);
     f_r = detectSIFTFeatures(rf);
-    best = 100;
+    best = 1000;
     % Extract descriptors
     [l_desc,l_pos] = extractFeatures(lf,f_l);
     [r_desc,r_pos] = extractFeatures(rf,f_r);
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
-        
-           
-        
-        
-
-        
         % Match the descriptors
         inter_frame = matchFeatures(l_desc,r_desc);
+        
+        % Intra frame matches
+        lm = matchFeatures(l_desc,features.l_desc);   % Left intra frame match
+        features.l_desc = features.l_desc(lm(:,2),:);
+        features.r_desc = features.r_desc(lm(:,2),:);
+        features.pos = features.pos(lm(:,2));
 
-        lm = matchFeatures(l_desc,features.l_desc);
-        rm = matchFeatures(r_desc,features.r_desc);
+        rm = matchFeatures(r_desc,features.r_desc);   % Right intra frame matc
+        features.l_desc = features.l_desc(rm(:,2),:);
+        features.r_desc = features.r_desc(rm(:,2),:);
+        features.pos = features.pos(rm(:,2));
+        
+
+        % Points that still exist in atleast one perspective
+
+
+
+        % Old points that still exist in atleast one perspective
+        % but represented in the new images
+        temp_l_desc = l_desc(lm(:,1));
+        temp_r_desc = r_desc(rm(:,1));
+        temp_l_pos = l_pos(lm(:,1));
+        temp_r_pos = r_pos(rm(:,1));
+
+        
+
+
+        % Old pairs that exist
+        temp_new_match = matchFeatures(temp_l_desc,temp_r_desc);
+
+        % Get new valid points
+        temp_l_desc = features.l_desc(temp_new_match(:,1));     % Intermediate descriptor
+        temp_r_desc = features.r_desc(temp_new_match(:,2));     % Intermediate descriptor
+        temp_l_pos = temp_l_pos(temp_new_match(:,1));           % Intermediate pos_l
+        temp_r_pos = temp_r_pos(temp_new_match(:,2));           % Intermediate pos_r
+        p = []
+        % Compute distance
+        for itter = 1:length(dist)  
+            p  = [p;triangulate(round(l_pos(itter).Location),round(r_pos(itter).Location),p1,p2)];
+            dist(itter) = sqrt(sum(p(end).^2));
+        end
+
+
+        
+
+
+        % Find 3d coords ( old points ) 
+        % Find 3d coords ( matching old points )
+        % Find translation and rotation
+        % Interpolate
+        % Extract pose
+        
+
+        % Find points that exist in both the old and the new right and left
+        % images
+        
+
+        
+        % Add new features
         for index = 1:length(inter_frame)
             if isempty(find(lm(:,1) == inter_frame(index,1)))  && isempty(find(rm(:,2) == inter_frame(index,2)))
                 lm = [lm;inter_frame(index,1),0];
-                rm = [lm;inter_frame(index,1),0];
-                matched = [matched;inter_frame(index,:)]
+                rm = [rm;inter_frame(index,2),0];
             end
         end
-        
+
         % possibly add features
         l_desc = l_desc(lm(:,1),:);
         l_pos = l_pos(lm(:,1));
         r_desc = r_desc(rm(:,1),:);
         r_pos = r_pos(rm(:,1));
+
+
+
+
 
     end
     % Match the descriptors
@@ -97,36 +148,40 @@ for i = 1:length(cam0.Files)
 
 
     ptk = min([best,length(matched) ]);
+
+
     l_pos = l_pos(matched(1:ptk,1));
     r_pos = r_pos(matched(1:ptk,2));
-    l_desc = l_desc(matched(:,1),:);
-    r_desc = r_desc(matched(:,2),:);
+    l_desc = l_desc(matched(1:ptk,1),:);
+    r_desc = r_desc(matched(1:ptk,2),:);
 
     figure;imshow(lf);
     x = l_pos.Location(:,1);
     y = l_pos.Location(:,2);
     dist = zeros(1,length(l_pos));
 
+    p = []
+    % Compute distance
     for itter = 1:length(dist)  
-        d = (triangulate(round(l_pos(itter).Location),round(r_pos(itter).Location),p1,p2));
-        dist(itter) = sqrt(sum(d.^2));
+        p  = [p;triangulate(round(l_pos(itter).Location),round(r_pos(itter).Location),p1,p2)];
+        dist(itter) = sqrt(sum(p(end).^2));
     end
     hold on
     scatter(x,y);
     for j = 1:length(dist)
         lable = sprintf("%f [m]",norm(dist(j)));
-        text(x(j),y(j),lable,"Color",'g');
+        %text(x(j),y(j),lable,"Color",'g');
     end
     hold off
 
 
 
-    features = struct( ...
-        "l_pos", l_pos, ...
-        "r_pos",r_pos, ...
-        "l_desc",l_desc, ...
-        "r_desc",r_desc, ...
-        "z",dist);
+    features = struct( ...          
+        "pos", p ,...               % 3d locations
+        "l_desc",l_desc, ...        % Feature descriptors in left image
+        "r_desc",r_desc, ...        % -||- right image
+        "matched",matched...
+        );
 
 
 end
