@@ -57,16 +57,16 @@ for i = 1:length(cam0.Files)
     f_r = detectSIFTFeatures(rf);
     best = 100;
     % Extract descriptors
-    [l_desc,l_pos] = extractFeatures(lf,f_l,"Method","SIFT");
-    [r_desc,r_pos] = extractFeatures(rf,f_r,"Method","SIFT");
+    [l_desc,l_pos] = extractFeatures(lf,f_l);
+    [r_desc,r_pos] = extractFeatures(rf,f_r);
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
         lm = matchFeatures(l_desc,features.l_desc);
         rm = matchFeatures(r_desc,features.r_desc);
-        l_desc = l_desc(lm(:,1));
+        l_desc = l_desc(lm(:,1),:);
         l_pos = l_pos(lm(:,1));
-        r_desc = r_desc(rm(:,1));
+        r_desc = r_desc(rm(:,1),:);
         r_pos = r_pos(rm(:,1));
     end
     % Match the descriptors
@@ -78,15 +78,18 @@ for i = 1:length(cam0.Files)
 
 
     ptk = min([best,length(matched) ]);
-    lp = l_pos(matched(1:ptk,1));
-    rp = r_pos(matched(1:ptk,2));
+    l_pos = l_pos(matched(1:ptk,1));
+    r_pos = r_pos(matched(1:ptk,2));
+    l_desc = l_desc(matched(:,1),:);
+    r_desc = r_desc(matched(:,2),:);
+
     figure;imshow(lf);
-    x = lp.Location(:,1);
-    y = lp.Location(:,2);
-    dist = zeros(1,length(lp));
+    x = l_pos.Location(:,1);
+    y = l_pos.Location(:,2);
+    dist = zeros(1,length(l_pos));
 
     for itter = 1:length(dist)  
-        d = (triangulate(round(lp(itter).Location),round(rp(itter).Location),p1,p2));
+        d = (triangulate(round(l_pos(itter).Location),round(r_pos(itter).Location),p1,p2));
         dist(itter) = sqrt(sum(d.^2));
     end
     hold on
