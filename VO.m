@@ -73,7 +73,8 @@ for i = 1:length(cam0.Files)
         rm = matchFeatures(r_desc,features.r_desc);   % Right intra frame match
         
 
-        p = p(rm(:,2));
+        % Now we have the old points
+        old_points = p(rm(:,2));
         features.l_desc = features.l_desc(rm(:,2),:);
         features.r_desc = features.r_desc(rm(:,2),:);
 
@@ -82,9 +83,10 @@ for i = 1:length(cam0.Files)
 
         % Old points that still exist in atleast one perspective
         % but represented in the new images
-        temp_l_desc = l_desc(lm(:,1));
-        temp_r_desc = r_desc(rm(:,1));
+        temp_l_desc = l_desc(lm(:,1),:);
         temp_l_pos = l_pos(lm(:,1));
+        % Right side
+        temp_r_desc = r_desc(rm(:,1),:);
         temp_r_pos = r_pos(rm(:,1));
 
         
@@ -99,10 +101,12 @@ for i = 1:length(cam0.Files)
         temp_l_pos = temp_l_pos(temp_new_match(:,1));           % Intermediate pos_l
         temp_r_pos = temp_r_pos(temp_new_match(:,2));           % Intermediate pos_r
         p = [];
-        % Compute distance
+        % Compute 3d coord
         for itter = 1:size(temp_l_pos,1)  
             p  = [p;triangulate(round(temp_l_pos(itter).Location),round(temp_r_pos(itter).Location),p1,p2)];
         end
+
+        
         
 
 
