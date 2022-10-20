@@ -1,83 +1,91 @@
 clear
 clc
 
-% Rigid body transformation (contains all motion)
-% T(k,k-1) = [R(k,k-1) t(k,k-1); 0 1];
-% R is rotation matrix, t is translation vector
 
-% C is the pose with respect to the initial coordinate frame C0 (k=0)
-% Cn can be found by concatenating all Tk
+% Get the camera feeds
+cam0 = imageDatastore("./kitti/00/image_0/*","FileExtensions",".png");
+cam1 = imageDatastore("./kitti/00/image_1/*","FileExtensions",".png");
 
-% Projection/camera matrix (y = Px where image coordinate is y = (u, v, 1)^T and 
-% world coordinate is x = (x, y, z, 1)^T if rectified, otherwise y = PRx
-% where R is the rectifying rotation matrix.)
-% See equation 4 in
-% https://journals.sagepub.com/doi/epub/10.1177/0278364913491297
-calib = readmatrix('kitti\00\calib.txt');
-P11 = calib(1,2:13);
-P11 = reshape(P11,4,3);
-P1 = permute(P11, [2,1]); % Left projection matrix
-P22 = calib(2,2:13);
-P22 = reshape(P22,4,3);
-P2 = permute(P22, [2,1]); % Right projection matrix
+
+calib = readmatrix('./kitti/00/calib.txt');
+% Collect the projection matricies
+p11 = calib(1,2:13);
+p11 = reshape(p11,4,3);
+p1 = permute(p11, [2,1]); % Left projection matrix
+p22 = calib(2,2:13);
+p22 = reshape(p22,4,3);
+p2 = permute(p22, [2,1]); % Right projection matrix
 
 % Projection parameters
-fu1 = P1(1,1); % focal lengths
-fv1 = P1(2,2);
-cu1 = P1(1,3);
-cv1 = P1(2,3);
-bx1 = -P1(1,4)/fu1; % baseline
+fu1 = p1(1,1); % focal lengths
+fv1 = p1(2,2);
+cu1 = p1(1,3);
+cv1 = p1(2,3);
+bx1 = -p1(1,4)/fu1; % baseline
 
-fu2 = P2(1,1);
-fv2 = P2(2,2);
-cu2 = P2(1,3);
-cv2 = P2(2,3);
-bx2 = -P2(1,4)/fu2;
+fu2 = p2(1,1);
+fv2 = p2(2,2);
+cu2 = p2(1,3);
+cv2 = p2(2,3);
+bx2 = -p2(1,4)/fu2;
 
 f = mean([fu1 fu2 fv1 fv2]);
 clear fu1 fu2 fv1 fv2
 
-%%% Algorithm 3. VO from 3-D-to-2-D Correspondences %%%
-
-% 1) Do only once:
-% 1.1) Capture two frames Ik2, Ik1
-left1 = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0\000000.png','double');
-right1 = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_1\000000.png','double');
-
-% 1.2) Extract and match features between them
-strongest = 300;
-[match1, match2] = match_sift(left1,right1,strongest);
-
-% 1.3) Triangulate features from Ik2, Ik1
-location1 = match1.Location;
-location2 = match2.Location;
-points3D = triangulate(location1,location2,P11,P22);
-
-% Show points on top of image
-% imshow(left1)
-% hold on
-% plot(location1(:,1),location1(:,2), 'r+', 'MarkerSize', 30, 'LineWidth', 2);
 
 
+% För varje frame:
+%  1. Kolla efter features, SIFT
+%  2. Generera descriptors, SIFT
+%  3. Räkna ut djup för varje feature
+%  4. Spara denna frames descriptors till nästa,
+%  5. Räkna ut skillnad mellan matchande features ( i 3d ) 
+%  6. Interpolera för att hitta förflyttningen
+%  7. Addera till tidigare pose
+
+
+features = [];
+for i = 1:length(cam0)
+    lf = readimage(cam0,i);
+    rf = readimage(cam1,i);
+    % Get the corrected images
+    % [l_rect,r_rect]= rectifyStereoImages(lf,rf,p1,p2);
+    
+    
+    % Get the features
+    f_l = detectSIFTFeatures(lf);
+    f_r = detectSIFTFeatures(rf);
+    best = 250;
+    % Extract descriptors
+    [l_desc,l_pos] = extractFeatures(lf,f_l.selectStrongest(best));
+    [r_desc,r_pos] = extractFeatures(rf,f_r.selectStrongest(best));
+    % Match the descriptors
+    matched = matchFeatures(l_desc,r_desc);
+    ptk = min([best,length(matched) ]);
+    lp = l_pos(matched(1:ptk,1));
+    rp = r_pos(matched(1:ptk,2));
+    figure;imshow(lf);
+    x = lp.Location(:,1);
+    y = lp.Location(:,2);
+    dist = zeros(1,length(lp));
+    for itter = 1:length(dist)  
+        d = (triangulate(round(lp(itter).Location),round(rp(itter).Location),p1,p2));
+        dist(itter) = sqrt(sum(d.^2));
+    end
+    hold on
+    scatter(x,y);
+    for j = 1:length(dist)
+        lable = sprintf("%f [m]",norm(dist(j)));
+        text(x(j),y(j),lable,"Color",'g');
+    end
+    hold off
+    
+
+    % Genereate features for each and every 
 
 
 
 
-% Load images
-% left = iread('C:\Users\Administratör\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0/*.png','double');
-% right = iread('C:\Users\Administratör\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_1/*.png','double');
-% left = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0/*.png','double');
-% right = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_1/*.png','double');
 
-% Rectify?
-
-% [match1, match2] = match_sift()
-
-% 3D-point Xk1 can be estimated from stereo data.
-% The latter (pk) requires image correspondences across three views.
-% p^i_k-1 is the reprojection of the 3-D point X^i_k1 into image I_k
-% k = image index (column)
-% i = point index (row)
-% Find Tk that minimizes the image reprojection error:
-% norm(p(i,k)-p(i,k-1))^2;
+end
 
