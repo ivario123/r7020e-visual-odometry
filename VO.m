@@ -45,6 +45,7 @@ clear fu1 fu2 fv1 fv2
 
 
 features = [];
+pose = []
 for i = 1:length(cam0.Files)
     lf = readimage(cam0,i);
     rf = readimage(cam1,i);
@@ -60,6 +61,23 @@ for i = 1:length(cam0.Files)
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
+        
+        % This looks really messy and I will likely forget how it works
+        % since it's spagetti
+
+        % here's the idea
+
+        % 1. Find all the matching features in the left images 
+        % 2. Find all the matching features in the right image 
+        % 3. Remove any feature not in these sets 
+        % 4. Find the position of all of the remaining points in both the 
+        % left and the right images at this timestep 
+        % 5. Use triangulate to find the 3d points for every feature 
+        % 6. Compute the difference between every feature 
+
+        
+        
+
         % Match the descriptors
         inter_frame = matchFeatures(l_desc,r_desc);
 
@@ -68,6 +86,7 @@ for i = 1:length(cam0.Files)
         p = p(lm(:,2));
 
         features.l_desc = features.l_desc(lm(:,2),:);
+        features.l_pos = features.l_pos(lm(:,2),:);
         features.r_desc = features.r_desc(lm(:,2),:);
         
         rm = matchFeatures(r_desc,features.r_desc);   % Right intra frame match
@@ -76,6 +95,7 @@ for i = 1:length(cam0.Files)
         % Now we have the old points
         old_points = p(rm(:,2));
         features.l_desc = features.l_desc(rm(:,2),:);
+        features.l_pos = features.l_pos(rm(:,2),:);
         features.r_desc = features.r_desc(rm(:,2),:);
 
 
@@ -88,7 +108,7 @@ for i = 1:length(cam0.Files)
         % Right side
         temp_r_desc = r_desc(rm(:,1),:);
         temp_r_pos = r_pos(rm(:,1));
-
+        
         
 
 
@@ -96,8 +116,8 @@ for i = 1:length(cam0.Files)
         temp_new_match = matchFeatures(temp_l_desc,temp_r_desc);
 
         % Get new valid points
-        temp_l_desc = features.l_desc(temp_new_match(:,1));     % Intermediate descriptor
-        temp_r_desc = features.r_desc(temp_new_match(:,2));     % Intermediate descriptor
+        temp_l_desc = temp_l_desc(temp_new_match(:,1),:);     % Intermediate descriptor
+        temp_r_desc = temp_r_desc(temp_new_match(:,2),:);     % Intermediate descriptor
         temp_l_pos = temp_l_pos(temp_new_match(:,1));           % Intermediate pos_l
         temp_r_pos = temp_r_pos(temp_new_match(:,2));           % Intermediate pos_r
         p = [];
@@ -105,21 +125,59 @@ for i = 1:length(cam0.Files)
         for itter = 1:size(temp_l_pos,1)  
             p  = [p;triangulate(round(temp_l_pos(itter).Location),round(temp_r_pos(itter).Location),p1,p2)];
         end
+        % Here we need to estimate the camera pose given the old and new 3d
+        % 
+        if isempty(pose)
+            pose = estworldpose(temp_l_pos.Location,p,cameraIntrinsics(f,[cu1,cv1],size(lf)));
+        else
+        
+            pose =rigidtform3d(estworldpose(temp_l_pos.Location,p,cameraIntrinsics(f,[cu1,cv1],size(lf))).A*pose.A);
+        end
+        disp(pose.Translation);
+
+        
+        % Last time we do this, letsgo
+        temp_match = matchFeatures(temp_l_desc,features.l_desc);
+
+
+        temp_l_pos = temp_l_pos(temp_match(:,1));           % Intermediate pos_l
+        temp_r_pos = temp_r_pos(temp_match(:,1));           % Intermediate pos_r
+        old_pos_l = features.l_pos(temp_match(:,2),:);
+        p = p(temp_new_match(temp_match(:,1)));             %
+        old_points = old_points(temp_match(:,1));           %
+        
+        distances = old_points-p;
+        for d = 1:length(distances)
+            distances(d) = norm(distances(d,:));
+        end
+
+        % Draw distances on the old image
+        hold on
+        scatter(temp_l_pos.Location(:,1),temp_l_pos.Location(:,2));
+        % Old x locations
+        x = temp_l_pos.Location(:,1);
+        y = temp_l_pos.Location(:,2);
+        % Old y locations
+        ox = old_pos_l.Location(:,1);
+        oy = old_pos_l.Location(:,2);
+
+        for index = 1:length(x)
+            plot([x(index),ox(index)],[y(index),oy(index)]);
+        end
+        for j = 1:length(distances)
+            lable = sprintf("%f [m]",norm(distances(j)));
+            text(x(j),y(j),lable,"Color",'g');
+        end
+        hold off
+
+        
+
+        
 
         
         
 
-
         
-
-
-        % Find 3d coords ( old points ) 
-        % Find 3d coords ( matching old points )
-        % Find translation and rotation
-        % Interpolate
-        % Extract pose
-        
-
         % Find points that exist in both the old and the new right and left
         % images
         
@@ -165,7 +223,7 @@ for i = 1:length(cam0.Files)
     y = l_pos.Location(:,2);
     dist = zeros(1,length(l_pos));
 
-    p = []
+    p = [];
     % Compute distance
     for itter = 1:length(dist)  
         p  = [p;triangulate(round(l_pos(itter).Location),round(r_pos(itter).Location),p1,p2)];
@@ -185,6 +243,7 @@ for i = 1:length(cam0.Files)
         "pos", p ,...               % 3d locations
         "l_desc",l_desc, ...        % Feature descriptors in left image
         "r_desc",r_desc, ...        % -||- right image
+        "l_pos",l_pos,...
         "matched",matched...
         );
 
