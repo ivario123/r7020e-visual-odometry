@@ -39,16 +39,6 @@ clear fu1 fu2 fv1 fv2
 
 %%% Algorithm 3. VO from 3-D-to-2-D Correspondences %%%
 
-% Specify folder with calibrations images
-calibrationFolder1 = 'C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0';
-calibrationFolder2 = 'C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_1';
-% Specify what type of files to look for
-fileType1 = fullfile(calibrationFolder1, '*.png');
-fileType2 = fullfile(calibrationFolder2, '*.png');
-% Create a file array
-theFiles1 = dir(fileType1);
-theFiles2 = dir(fileType2);
-
 % 1) Do only once:
 % 1.1) Capture two frames Ik2, Ik1
 left1 = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0\000000.png','double');
@@ -68,16 +58,6 @@ points3D = triangulate(location1,location2,P11,P22);
 % hold on
 % plot(location1(:,1),location1(:,2), 'r+', 'MarkerSize', 30, 'LineWidth', 2);
 
-numImages = 10;
-% 2) Do at each iteration:
-for i = 1:numImages
-
-    % 2.1) Capture new frame Ik
-    leftImageName = theFiles1(i).name;
-    rightImageName = theFiles1(i).name;
-    leftImages{k} = fullfile(theFiles1(i).folder, leftImageName{k});
-    rightImages{k} = fullfile(theFiles2(i).folder, rightImageName{k});
-end
 
 
 

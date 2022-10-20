@@ -1,4 +1,4 @@
-function [match1, match2] = match_sift(I1,I2,EdgeThresh,ContrastThresh,NumLayersInOctave,Sigma,strongest)
+function [match1, match2] = match_sift(I1,I2,strongest,EdgeThresh,ContrastThresh,NumLayersInOctave,Sigma)
 
 I1 = im2gray(I1);
 I2 = im2gray(I2);
@@ -9,6 +9,11 @@ if nargin == 2
     NumLayersInOctave = 3;
     Sigma = 1.6;
     strongest = 'all';
+elseif nargin == 3
+    EdgeThresh = 10;
+    ContrastThresh = 0.0133;
+    NumLayersInOctave = 3;
+    Sigma = 1.6;
 end
 
 points1 = detectSIFTFeatures(I1,EdgeThreshold=EdgeThresh,ContrastThreshold=ContrastThresh,NumLayersInOctave=NumLayersInOctave,Sigma=Sigma);
