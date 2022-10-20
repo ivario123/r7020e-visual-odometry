@@ -22,11 +22,11 @@ P22 = reshape(P22,4,3);
 P2 = permute(P22, [2,1]); % Right projection matrix
 
 % Projection parameters
-fu1 = P1(1,1); % focal lengths
+fu1 = P1(1,1); % focal lengths (pixels)
 fv1 = P1(2,2);
-cu1 = P1(1,3);
+cu1 = P1(1,3); % center of image (pixels)
 cv1 = P1(2,3);
-bx1 = -P1(1,4)/fu1; % baseline
+bx1 = -P1(1,4)/fu1;
 
 fu2 = P2(1,1);
 fv2 = P2(2,2);
@@ -34,49 +34,95 @@ cu2 = P2(1,3);
 cv2 = P2(2,3);
 bx2 = -P2(1,4)/fu2;
 
+T = bx2 - bx1; % baseline
 f = mean([fu1 fu2 fv1 fv2]);
 clear fu1 fu2 fv1 fv2
 
 %%% Algorithm 3. VO from 3-D-to-2-D Correspondences %%%
 
-% Specify folder with calibrations images
-calibrationFolder1 = 'C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0';
-calibrationFolder2 = 'C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_1';
-% Specify what type of files to look for
-fileType1 = fullfile(calibrationFolder1, '*.png');
-fileType2 = fullfile(calibrationFolder2, '*.png');
-% Create a file array
-theFiles1 = dir(fileType1);
-theFiles2 = dir(fileType2);
+left = imageDatastore("kitti\00\image_0*","FileExtensions",".png");
+right = imageDatastore("kitti\00\image_1*","FileExtensions",".png");
 
 % 1) Do only once:
 % 1.1) Capture two frames Ik2, Ik1
-left1 = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_0\000000.png','double');
-right1 = iread('C:\Users\emanu\Documents\MATLAB\r7020e-visual-odometry\kitti\00\image_1\000000.png','double');
+left1 = iread(left.Files{1});
+right1 = iread(right.Files{1});
 
 % 1.2) Extract and match features between them
 strongest = 300;
-[match1, match2] = match_sift(left1,right1,strongest);
+[matchLeft, matchRight] = match_sift(left1,right1,strongest);
 
 % 1.3) Triangulate features from Ik2, Ik1
-location1 = match1.Location;
-location2 = match2.Location;
-points3D = triangulate(location1,location2,P11,P22);
+location1 = matchLeft.Location;
+location2 = matchRight.Location;
+[points3D,reprojectionErrors] = triangulate(location1,location2,P11,P22);
 
 % Show points on top of image
 % imshow(left1)
 % hold on
 % plot(location1(:,1),location1(:,2), 'r+', 'MarkerSize', 30, 'LineWidth', 2);
 
-numImages = 10;
+prevLeft = left1;
+prevRight = right1;
+numImages = 1;
 % 2) Do at each iteration:
 for i = 1:numImages
 
     % 2.1) Capture new frame Ik
-    leftImageName = theFiles1(i).name;
-    rightImageName = theFiles1(i).name;
-    leftImages = fullfile(theFiles1(i).folder, leftImageName);
-    rightImages = fullfile(theFiles2(i).folder, rightImageName);
+    left = iread(left.Files{i});
+    right = iread(right.Files{i});
+
+    % 2.2) Extract features and match with previous frame Ik1
+    strongest = 300;
+
+    [matchLeft, matchRight] = match_sift(left,right,strongest);
+    location1 = matchLeft.Location;
+    location2 = matchRight.Location;
+    [points3D,reprojectionErrors] = triangulate(location1,location2,P11,P22);
+
+    distance = zeros(1,size(points3D,1));
+    for k = 1:size(points3D,1)
+        distance(k,:) = norm(points3D(k,:));
+    end
+
+    % Create labels for feature locations
+    labels = cell(1,nnz(distance(:,i)));
+    for j = 1:nnz(distance(:,i))
+        labels{j} = sprintf('%0.2f meters', distance(j,i));
+    end
+
+    %         labels = labels(~cellfun('isempty',labels));
+
+    % Show images with labels on top
+    numPoints = size(labels,2);
+    %         x = zeros(size(labels,2),1);
+    %         y = zeros(size(labels,2),1);
+    for j = 1:size(labels,2)
+        x(j,1) = location1(j,2*i-1);
+        y(j,1) = location1(j,2*i);
+    end
+
+    imshow(insertObjectAnnotation(left, 'rectangle', [x y 5*ones(numPoints,1) 5*ones(numPoints,1)], labels,'FontSize',10))
+    title('Distance to feature points')
+
+
+
+    %%% Match between frames %%%
+
+    [curMatchLeft, prevMatchLeft] = match_sift(left,prevLeft,strongest);
+    [curMatchRight, prevMatchRight] = match_sift(right,prevRight,strongest);
+
+
+
+
+    
+    % 2.3) Compute camera pose (PnP) from 3-D-to-2-D matches
+
+    % 2.4) Triangulate all new feature matches between Ik and Ik1
+
+    prevleft = left;
+    prevright = right;
+
 end
 
 
