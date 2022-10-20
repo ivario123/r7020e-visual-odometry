@@ -75,8 +75,8 @@ for i = 1:numImages
     % 2.1) Capture new frame Ik
     leftImageName = theFiles1(i).name;
     rightImageName = theFiles1(i).name;
-    leftImages{k} = fullfile(theFiles1(i).folder, leftImageName{k});
-    rightImages{k} = fullfile(theFiles2(i).folder, rightImageName{k});
+    leftImages = fullfile(theFiles1(i).folder, leftImageName);
+    rightImages = fullfile(theFiles2(i).folder, rightImageName);
 end
 
 
