@@ -1,6 +1,6 @@
-./kitty/*
-kitty/*
-.kitty*/
+./kitti/*
+kitti/*
+.kitti*/
 *.png
 *.jpg
 *.jpeg
