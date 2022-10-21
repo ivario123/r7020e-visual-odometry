@@ -125,26 +125,35 @@ for i = 1:length(cam0.Files)
         temp_r_pos = temp_r_pos(temp_new_match(:,2));         % Intermediate pos_r
 
         p = [];
-        % Compute 3D coordinates for current frame features
+        % Compute 3D coordinates for current frame features (relative to camera?) 
         for it = 1:size(temp_l_pos,1)
             p  = [p;triangulate(temp_l_pos(it).Location,temp_r_pos(it).Location,P11,P22)];
 %             p  = [p;triangulate(round(temp_l_pos(it).Location),round(temp_r_pos(it).Location),P1,P2)];
         end
 
+        
+
 
         % Estimate the camera pose given the old and new 3D
         intrinsics = cameraIntrinsics(f,[cu1,cv1],size(lf));
-%         if isempty(pose)
-%             pose = estworldpose(temp_l_pos.Location,p,intrinsics);
-%         else
-%             pose = rigidtform3d(estworldpose(temp_l_pos.Location,p,intrinsics).A*pose.A);
-%         end
-%         disp(pose.Translation);
-        T = estworldpose(temp_l_pos.Location,p,intrinsics); % Rigid body transformation
-        C = C*T; % Pose
+        if isempty(pose)
+            worldPoints = p;
+            pose = estworldpose(temp_l_pos.Location,p,intrinsics);
+        else
+%           True location = camera location + orientation*(points relative to camera)
+            worldPoints = pose.translation + pose.R*p;
+%           C(n) = C(n-1)*T(n)
+            pose = rigidtform3d(pose.A*estworldpose(temp_l_pos.Location,worldPoints,intrinsics).A);
+        end
+        disp(pose.Translation);
 
+        % 2-D points in an image that match across multiple views
+%         viewIDs = 
+%         points = 
+        pointTracks = pointTrack(viewIDs,points);
         % Bundle adjustment (a more accurate estimate of local trajectory)
-        [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics);
+        % [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics)
+        [xyzRefinedPoints,refinedPoses] = bundleAdjustment(p+pose.Translation,pointTracks,T,intrinsics);
 
 
 

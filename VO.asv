@@ -125,20 +125,35 @@ for i = 1:length(cam0.Files)
         temp_r_pos = temp_r_pos(temp_new_match(:,2));         % Intermediate pos_r
 
         p = [];
-        % Compute 3D coordinates for current frame features
+        % Compute 3D coordinates for current frame features (relative to to camera?) 
         for it = 1:size(temp_l_pos,1)
             p  = [p;triangulate(temp_l_pos(it).Location,temp_r_pos(it).Location,P11,P22)];
 %             p  = [p;triangulate(round(temp_l_pos(it).Location),round(temp_r_pos(it).Location),P1,P2)];
         end
 
+        worldPoints = p + 
 
-        % Estimate the camera pose given the old and new 3D 
-        if isempty(pose)
-            pose = estworldpose(temp_l_pos.Location,p,cameraIntrinsics(f,[cu1,cv1],size(lf)));
-        else
-            pose = rigidtform3d(estworldpose(temp_l_pos.Location,p,cameraIntrinsics(f,[cu1,cv1],size(lf))).A*pose.A);
-        end
-        disp(pose.Translation);
+
+        % Estimate the camera pose given the old and new 3D
+        intrinsics = cameraIntrinsics(f,[cu1,cv1],size(lf));
+%         if isempty(pose)
+%             pose = estworldpose(temp_l_pos.Location,p,intrinsics);
+%         else
+%             pose = rigidtform3d(estworldpose(temp_l_pos.Location,p,intrinsics).A*pose.A);
+%         end
+%         disp(pose.Translation);
+
+
+        C = estworldpose(temp_l_pos.Location,p,intrinsics); % Pose
+        R = C.R; % Rotation
+        t = C.Translation; % Translation
+
+        % 2-D points in an image that match across multiple views
+        viewIDs = 
+        points = 
+        pointTracks = pointTrack(viewIDs,points);
+        % Bundle adjustment (a more accurate estimate of local trajectory)
+        [xyzRefinedPoints,refinedPoses] = bundleAdjustment(p,pointTracks,T,intrinsics);
 
 
 
