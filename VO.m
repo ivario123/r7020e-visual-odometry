@@ -139,11 +139,23 @@ for i = 1:length(cam0.Files)
         if isempty(pose)
             worldPoints = p;
             pose = estworldpose(temp_l_pos.Location,p,intrinsics);
-        else
-%           True location = camera location + orientation*(points relative to camera)
+        else % TWO ALTERNATIVES
+            % True location = camera location + orientation*(points relative to camera)
             worldPoints = pose.translation + pose.R*p;
-%           C(n) = C(n-1)*T(n)
             pose = rigidtform3d(pose.A*estworldpose(temp_l_pos.Location,worldPoints,intrinsics).A);
+            
+            % Or is this the way to go?
+            % Essential matrix
+            matchedPoints1 = features.l_pos; % not sure if these are the right matchpoints
+            matchedPoints2 = features.r_pos;
+            cameraParams = intrinsics; % this argument should be supported as well
+            [E,inliersIndex] = estimateEssentialMatrix(matchedPoints1,matchedPoints2,cameraParams);
+
+            % Relative pose
+            inlierPoints1 = matchedPoints1(inliersIndex);
+            inlierPoints2 = matchedPoints1(inliersIndex);
+            relativePose = estrelpose(E,intrinsics,inlierPoints1,inlierPoints2);
+            pose = rigidtform3d(pose.A*relativePose.A);
         end
         disp(pose.Translation);
 

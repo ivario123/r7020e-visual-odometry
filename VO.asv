@@ -125,35 +125,45 @@ for i = 1:length(cam0.Files)
         temp_r_pos = temp_r_pos(temp_new_match(:,2));         % Intermediate pos_r
 
         p = [];
-        % Compute 3D coordinates for current frame features (relative to to camera?) 
+        % Compute 3D coordinates for current frame features (relative to camera?) 
         for it = 1:size(temp_l_pos,1)
             p  = [p;triangulate(temp_l_pos(it).Location,temp_r_pos(it).Location,P11,P22)];
 %             p  = [p;triangulate(round(temp_l_pos(it).Location),round(temp_r_pos(it).Location),P1,P2)];
         end
 
-        worldPoints = p + 
+        
 
 
         % Estimate the camera pose given the old and new 3D
         intrinsics = cameraIntrinsics(f,[cu1,cv1],size(lf));
-%         if isempty(pose)
-%             pose = estworldpose(temp_l_pos.Location,p,intrinsics);
-%         else
-%             pose = rigidtform3d(estworldpose(temp_l_pos.Location,p,intrinsics).A*pose.A);
-%         end
-%         disp(pose.Translation);
+        if isempty(pose)
+            worldPoints = p;
+            pose = estworldpose(temp_l_pos.Location,p,intrinsics);
+        else
+%           True location = camera location + orientation*(points relative to camera)
+            worldPoints = pose.translation + pose.R*p;
+            pose = rigidtform3d(pose.A*estworldpose(temp_l_pos.Location,worldPoints,intrinsics).A);
+            
+            % Or is this the way to go?
+            % Essential matrix
+            matchedPoints1 = features.l_pos; % not sure if these are the right matchpoints
+            matchedPoints2 = features.r_pos;
+            cameraParams = intrinsics; % this argument should be supported as well
+            [E,inliersIndex] = estimateEssentialMatrix(matchedPoints1,matchedPoints2,cameraParams);
 
-
-        C = estworldpose(temp_l_pos.Location,p,intrinsics); % Pose
-        R = C.R; % Rotation
-        t = C.Translation; % Translation
+            inlierPoints1 = matchedPoints1(inliersIndex);
+            inlierPoints2 = matchedPoints1(inliersIndex);
+            relativePose = estrelpose(E,intrinsics,inlierPoints1,inlierPoints2);
+        end
+        disp(pose.Translation);
 
         % 2-D points in an image that match across multiple views
-        viewIDs = 
-        points = 
+%         viewIDs = 
+%         points = 
         pointTracks = pointTrack(viewIDs,points);
         % Bundle adjustment (a more accurate estimate of local trajectory)
-        [xyzRefinedPoints,refinedPoses] = bundleAdjustment(p,pointTracks,T,intrinsics);
+        % [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics)
+        [xyzRefinedPoints,refinedPoses] = bundleAdjustment(p+pose.Translation,pointTracks,T,intrinsics);
 
 
 
