@@ -60,79 +60,17 @@ for i = 1:length(cam0.Files)
     % Extract descriptors
     [l_desc,l_pos] = extractFeatures(lf,f_l);
     [r_desc,r_pos] = extractFeatures(rf,f_r);
-
     % If it's not the first iteration we want to match features
     if ~isempty(features)
         % Match the descriptors for new frame
         inter_frame = matchFeatures(l_desc,r_desc);
-        
-
-        lm = matchFeatures(l_desc,features.l_desc);
-        p = p(lm(:,2));
-
-        % Remove features that aren't in both frames
-        features.l_desc = features.l_desc(lm(:,2),:);
-        features.l_pos = features.l_pos(lm(:,2),:);
-        features.r_pos = features.r_pos(lm(:,2),:);
-        features.r_desc = features.r_desc(lm(:,2),:);
-        
-        % Right intra frame matches
-        rm = matchFeatures(r_desc,features.r_desc);
-        
-        % Remove features that aren't in both frames
-        features.l_desc = features.l_desc(rm(:,2),:);
-        features.l_pos = features.l_pos(rm(:,2),:);
-        features.r_pos = features.r_pos(rm(:,2),:);
-        features.r_desc = features.r_desc(rm(:,2),:);
-
-        % Now we have the old points
-        old_points = p(rm(:,2));
-
-
-        % Old points that still exist in at least one perspective
-        % but represented in the new images     REPLACE "temp" with "old" or "prev"?
-        % Left side
-        temp_l_desc = l_desc(lm(:,1),:);
-        temp_l_pos = l_pos(lm(:,1));
-        % Right side
-        temp_r_desc = r_desc(rm(:,1),:);
-        temp_r_pos = r_pos(rm(:,1));
-        
-
-        % Old pairs that exist (IN CURRENT FRAME?)
-        temp_new_match = matchFeatures(temp_l_desc,temp_r_desc);
-
-        % Get new valid points (remove those that weren't found in both
-        % frames)
-        temp_l_desc = temp_l_desc(temp_new_match(:,1),:);     % Intermediate descriptor
-        temp_r_desc = temp_r_desc(temp_new_match(:,2),:);     % Intermediate descriptor
-        temp_l_pos = temp_l_pos(temp_new_match(:,1));         % Intermediate pos_l
-        temp_r_pos = temp_r_pos(temp_new_match(:,2));         % Intermediate pos_r
-
-        p = [];
-        % Compute 3D coordinates for current frame features (relative to camera?) 
-        for it = 1:size(temp_l_pos,1)
-            p  = [p;triangulate(temp_l_pos(it).Location,temp_r_pos(it).Location,P11,P22)];
-%             p  = [p;triangulate(round(temp_l_pos(it).Location),round(temp_r_pos(it).Location),P1,P2)];
-        end
-
-        
-
-
+        prev_match = matchFeatures(l_desc,features.l_desc);
         % Estimate the camera pose given the old and new 3D
         intrinsics = cameraIntrinsics(f,[cu1,cv1],size(lf));
         if isempty(pose)
-            worldPoints = p;
-            pose = estworldpose(temp_l_pos.Location,p,intrinsics);
+            pose = estworldpose(l_pos(prev_match(:,1),:).Location,features.p(prev_match(:,2),:),intrinsics);
             relativePose = []; % Code crashed since it was uninit, just check if this is empty
-        else % TWO ALTERNATIVES
-            % True location = camera location + orientation*(points relative to camera)
-            worldPoints = zeros(size(p));
-            for index = 1:size(p,1)
-                worldPoints(index,:) = pose.Translation + p(index,:)*pose.R;
-            end
-            pose = rigidtform3d(pose.A*estworldpose(double(temp_l_pos.Location),worldPoints,intrinsics).A);
-            
+        else 
             % Or is this the way to go?
             % Essential matrix
             matchedPoints1 = l_pos(inter_frame(:,1),:); % not sure if these are the right matchpoints
@@ -140,14 +78,8 @@ for i = 1:length(cam0.Files)
             cameraParams = intrinsics; % this argument should be supported as well
             [E,inliersIndex] = estimateEssentialMatrix(matchedPoints1,matchedPoints2,cameraParams); % Camera essential should not change between two timestamps
 
-            % Relative pose
-
-            % Example says:
-%             matchedPoints1 = prevPoints(indexPairs(:, 1));
-%             matchedPoints2 = currPoints(indexPairs(:, 2))
-
             relativePose = estrelpose(E,intrinsics,matchedPoints1,matchedPoints2);
-            pose = rigidtform3d(,relativePose.Translation+pose.Translation);
+            pose = rigidtform3d(pose.R*relativePose.R,relativePose.Translation+pose.Translation);
         end
 
         % Add the current view to the view set.
@@ -164,7 +96,7 @@ for i = 1:length(cam0.Files)
 
             % Here we create an indexpair
             index_pair = matchFeatures(features.l_desc,features.r_desc);
-            vSet = addConnection(vSet, viewId, viewId-1, relativePose,"Matches",round(temp_l_pos.Location));
+            vSet = addConnection(vSet, viewId, viewId-1, relativePose,"Matches",round(l_pos(prev_match((.Location));
     
             % 2-D points in an image that match across multiple views
             % Each track contains 2-D projections of the same 3-D world point.
@@ -172,19 +104,7 @@ for i = 1:length(cam0.Files)
             
             % Returns absolute poses associated with the views
             cameraPoses = poses(vSet);
-    
-            % IS THE PREVIOUS TRIANGULATION NEEDED NOW? (I think so)
             [xyzPoints,errors] = triangulateMultiview(tracks, cameraPoses, intrinsics);
-            figure;
-            z = xyzPoints(:,3);
-            idx = errors < 5 & z > 0 & z < 20;
-            pcshow(xyzPoints(idx, :),AxesVisibility="on",VerticalAxis="y",VerticalAxisDir="down",MarkerSize=30);
-            hold on
-            plotCamera(cameraPoses, Size=0.2);
-            hold off
-            % Bundle adjustment (a more accurate estimate of local trajectory,
-            % an iterative refinement over the last m poses)
-            % [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics) REMOVE 
             [xyzRefinedPoints,refinedPoses,reprojectionErrors] = bundleAdjustment(xyzPoints,tracks,cameraPoses,intrinsics);
     
             % Update viewset with refined poses
@@ -194,59 +114,6 @@ for i = 1:length(cam0.Files)
         disp("Current position : ")
         disp(vSet.Views(end,:).AbsolutePose.Translation);
         disp("---------------")
-        % Match new left with old left
-        temp_match = matchFeatures(temp_l_desc,features.l_desc);
-
-        % remove those that weren't found in both frames
-        temp_l_pos = temp_l_pos(temp_match(:,1));           % Intermediate pos_l
-        temp_r_pos = temp_r_pos(temp_match(:,1));           % Intermediate pos_r
-        old_pos_l = features.l_pos(temp_match(:,2),:);
-        p = p(temp_new_match(temp_match(:,1)));             % What is this?
-        old_points = old_points(temp_match(:,1));           %
-        
-        distances = old_points-p;
-
-% Not needed I think
-%         % Draw distances on the old image
-%         hold on
-%         scatter(temp_l_pos.Location(:,1),temp_l_pos.Location(:,2));
-%         % Old x locations
-%         x = temp_l_pos.Location(:,1);
-%         y = temp_l_pos.Location(:,2);
-%         % Old y locations
-%         ox = old_pos_l.Location(:,1);
-%         oy = old_pos_l.Location(:,2);
-% 
-%         for index = 1:length(x)
-%             plot([x(index),ox(index)],[y(index),oy(index)]);
-%         end
-%         for j = 1:length(distances)
-%             label = sprintf("%f [m]",norm(distances(j)));
-%             text(x(j),y(j),lable,"Color",'g');
-%         end
-%         hold off
-
-        
-
-        
-        % Find points that exist in both the old and the new right and left
-        % images
-        
-
-        % Add new features
-        for index = 1:length(inter_frame)
-            if isempty(find(lm(:,1) == inter_frame(index,1)))  && isempty(find(rm(:,2) == inter_frame(index,2)))
-                lm = [lm;inter_frame(index,1),0];
-                rm = [rm;inter_frame(index,2),0];
-            end
-        end
-
-        % Possibly add new features
-        l_desc = l_desc(lm(:,1),:);
-        l_pos = l_pos(lm(:,1));
-        r_desc = r_desc(rm(:,1),:);
-        r_pos = r_pos(rm(:,1));
-
     end
 
 
@@ -281,9 +148,7 @@ for i = 1:length(cam0.Files)
     % Compute distance
     for it = 1:length(dist)
         p  = [p;triangulate(l_pos(it).Location,r_pos(it).Location,P11,P22)];
-%         [p;triangulate(round(l_pos(it).Location),round(r_pos(it).Location),P11,P22)];
         dist(it) = norm(p(end,:));
-%         dist(it) = sqrt(sum(p(end).^2)); % remove commented lines
     end
 
     % Show left frame with matched features and their depths
@@ -299,13 +164,12 @@ for i = 1:length(cam0.Files)
     hold off
 
 
-    features = struct( ...          
-        "pos", p ,...               % 3d locations
+    features = struct(...
         "l_desc",l_desc, ...        % Feature descriptors in left image
         "r_desc",r_desc, ...        % -||- right image
         "l_pos",l_pos,...           % DO WE NEED POS FOR RIGHT IMAGE?
         "r_pos",r_pos,...
-        "matched",matched...
+        "p",p...
         );
 
 
