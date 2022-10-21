@@ -105,7 +105,7 @@ for i = 1:length(cam0.Files)
 
 
         % Old points that still exist in at least one perspective
-        % but represented in the new images     REPLACE "temp" with "old"?
+        % but represented in the new images     REPLACE "temp" with "old" or "prev"?
         % Left side
         temp_l_desc = l_desc(lm(:,1),:);
         temp_l_pos = l_pos(lm(:,1));
@@ -154,21 +154,43 @@ for i = 1:length(cam0.Files)
             % Relative pose
             inlierPoints1 = matchedPoints1(inliersIndex);
             inlierPoints2 = matchedPoints1(inliersIndex);
+
+            % Example says:
+%             matchedPoints1 = prevPoints(indexPairs(:, 1));
+%             matchedPoints2 = currPoints(indexPairs(:, 2))
+
             relativePose = estrelpose(E,intrinsics,inlierPoints1,inlierPoints2);
             pose = rigidtform3d(pose.A*relativePose.A);
         end
         disp(pose.Translation);
 
+
+        % Add the current view to the view set.
+        viewId = i;
+        currPoints = temp_l_pos(it).Location; % These unnecessary lines can be inserted to the function and removed.
+        vSet = addView(vSet, viewId, pose, Points=currPoints);
+
+        % Store the point matches between the previous and the current views. 
+        % NOT SURE WHAT TO INSERT AS LAST ARGUMENT
+        vSet = addConnection(vSet, viewId-1, viewId, relativePose, Matches=indexPairs(inlierIdx,:));
+
         % 2-D points in an image that match across multiple views
-%         viewIDs = 
-%         points = 
-        pointTracks = pointTrack(viewIDs,points);
-        % Bundle adjustment (a more accurate estimate of local trajectory)
-        % [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics)
-        [xyzRefinedPoints,refinedPoses] = bundleAdjustment(p+pose.Translation,pointTracks,T,intrinsics);
+        % Each track contains 2-D projections of the same 3-D world point.
+        tracks = findTracks(vSet);
+        
+        % Returns absolute poses associated with the views
+        cameraPoses = poses(vSet);
 
+        % IS THE PREVIOUS TRIANGULATION NEEDED NOW? (I think so)
+        xyzPoints = triangulateMultiview(tracks, camPoses, intrinsics);
 
+        % Bundle adjustment (a more accurate estimate of local trajectory,
+        % an iterative refinement over the last m poses)
+        % [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics) REMOVE 
+        [xyzRefinedPoints,refinedPoses,reprojectionErrors] = bundleAdjustment(xyzPoints,tracks,cameraPoses,intrinsics);
 
+        % Update viewset with refined poses
+        vSet = updateView(vSet,refinedPoses);
         
         % Match new left with old left
         temp_match = matchFeatures(temp_l_desc,features.l_desc);
@@ -228,8 +250,22 @@ for i = 1:length(cam0.Files)
 
     end
 
+
     % Match the descriptors
     matched = matchFeatures(l_desc,r_desc);
+
+
+
+    if i == 1
+        % Image view set with data associated with each view
+        vSet = imageviewset;
+
+        % Add the first view to the view set.
+        viewId = 1;
+        vSet = addView(vSet, viewId, rigidtform3d, points=matched);
+    end
+
+
 
     % Number of matches
     ptk = min([best,length(matched)]);
