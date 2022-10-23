@@ -1,12 +1,38 @@
+% Coolcoolcool
+% First of some late night notes, read this https://buq2.com/camera-position-estimation-from-known-3d-points/
+% 1. The Projection matrix seems to inch close to correct ness but I that
+% it still needs some work
+% 2. The way I extract the rotation and translation data seems to be
+% correct
+% 3. We need to figure out how to recombine the poses, The old pose is
+% expressed in world coordinates and the new pose is expressed in the
+% previous poses world coordinates so the only thing we should have to
+% rotate is the added vector if even that
+
+
+% There are a few things that we need to do.
+% 1. Look at the A matrix composition and the rest of PnP.m and validate
+% that that is correct
+% 2. Look in to how we reconstruct the wold coord pose from the previous
+% camera coord pose
+% 3. Hope that we fix it quickly
+% 4. Merge this into main
+% 5. Make a .m file that given a set of rigidtform3d's, a number of feature matches
+% and an image visualizes the path of the camera and the ground truth in an
+% a single or 2 seperate plots
+% 6. Clean up the code, manage variable names and function names and just
+% make it look good.
+% 7. Write a report.
+
 clear
 clc
-%close all
+close all
 % Get the camera feeds
 cam0 = imageDatastore("./kitti/00/image_0/*", "FileExtensions", ".png");
 cam1 = imageDatastore("./kitti/00/image_1/*", "FileExtensions", ".png");
 
+% Get the calibration data
 calib = readmatrix('./kitti/00/calib.txt');
-frame_times = readmatrix("./kitti/00/times.txt");
 % Collect the projection matricies
 p11 = calib(1, 2:13);
 p11 = reshape(p11, 4, 3);
@@ -29,27 +55,25 @@ cv2 = p2(2, 3);
 bx2 = -p2(1, 4) / fu2;
 
 f = mean([fu1 fu2 fv1 fv2]);
-clear fu1 fu2 fv1 fv2
 
-% För varje frame:
-%  1. Kolla efter features, SIFT
-%  2. Generera descriptors, SIFT
-%  3. Räkna ut djup för varje feature
-%  4. Spara denna frames descriptors till nästa,
-%  5. Räkna ut skillnad mellan matchande features ( i 3d )
-%  6. Interpolera för att hitta förflyttningen
-%  7. Addera till tidigare pose
+% Get frame times
+frame_times = readmatrix("./kitti/00/times.txt");
 
 features = [];
-pose = []
-figure;
+
 hold on
-scatter(0,0)
+scatter(0, 0)
+old_translation = zeros(1, 3);
+old_rot = eye(3, 3);
+pose = rigidtform3d(old_rot, old_translation);
+old_pose = []
+all_poses = []
 
 for i = 1:length(cam0.Files)
     lf = readimage(cam0, i);
     rf = readimage(cam1, i);
-
+    figure(1);
+    imshow(lf);
     % Get the features
     f_l = detectSIFTFeatures(lf);
     f_r = detectSIFTFeatures(rf);
@@ -60,163 +84,92 @@ for i = 1:length(cam0.Files)
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
-
-        % This looks really messy and I will likely forget how it works
-        % since it's spagetti
-
-        % here's the idea
-
-        % 1. Find all the matching features in the left images
-        % 2. Find all the matching features in the right image
-        % 3. Remove any feature not in these sets
-        % 4. Find the position of all of the remaining points in both the
-        % left and the right images at this timestep
-        % 5. Use triangulate to find the 3d points for every feature
-        % 6. Compute the difference between every feature
-
-        % Match the descriptors
-        inter_frame = matchFeatures(l_desc, r_desc);
-
-        % Intra frame matches
-        lm = matchFeatures(l_desc, features.l_desc); % Left intra frame match
-        p = p(lm(:, 2));
-
-        features.l_desc = features.l_desc(lm(:, 2), :);
-        features.l_pos = features.l_pos(lm(:, 2), :);
-        features.r_desc = features.r_desc(lm(:, 2), :);
-
-        rm = matchFeatures(r_desc, features.r_desc); % Right intra frame match
-
-        % Now we have the old points
-        old_points = p(rm(:, 2));
-        features.l_desc = features.l_desc(rm(:, 2), :);
-        features.l_pos = features.l_pos(rm(:, 2), :);
-        features.r_desc = features.r_desc(rm(:, 2), :);
-
-        % Old points that still exist in atleast one perspective
-        % but represented in the new images
-        temp_l_desc = l_desc(lm(:, 1), :);
-        temp_l_pos = l_pos(lm(:, 1));
-        % Right side
-        temp_r_desc = r_desc(rm(:, 1), :);
-        temp_r_pos = r_pos(rm(:, 1));
-
-        % Old pairs that exist
-        temp_new_match = matchFeatures(temp_l_desc, temp_r_desc);
-
-        % Get new valid points
-        temp_l_desc = temp_l_desc(temp_new_match(:, 1), :); % Intermediate descriptor
-        temp_r_desc = temp_r_desc(temp_new_match(:, 2), :); % Intermediate descriptor
-        temp_l_pos = temp_l_pos(temp_new_match(:, 1)); % Intermediate pos_l
-        temp_r_pos = temp_r_pos(temp_new_match(:, 2)); % Intermediate pos_r
-
-        % Old pairs that exist in the left frame
-        existant_points = matchFeatures(temp_l_desc, features.l_desc);
-        features.pos = features.pos(existant_points(:, 2), :);
-        p = [];
-        % Compute 3d coord
-        for itter = 1:size(temp_l_pos, 1)
-            p = [p; triangulate(round(temp_l_pos(itter).Location), round(temp_r_pos(itter).Location), p1, p2)];
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %                         MATCHING                           %
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        % First find the features that remain
+        [remaining_features, remaining_left_frame_descriptors, left_frame_possitions, right_frame_descriptors, right_frame_possitions, last_match] = find_remaining_points(features, l_desc, l_pos, r_desc, r_pos);
+        features = remaining_features;
+        % Then triangulate the new points
+        p = zeros([size(left_frame_possitions, 1), 3]);
+        % Compute 3d coords
+        for itter = 1:size(left_frame_possitions, 1)
+            p(itter, :) = triangulate(round(left_frame_possitions(itter).Location), round(right_frame_possitions(itter).Location), p1, p2);
         end
 
-        p = p(existant_points(:, 1), :);
-        temp_l_desc = temp_l_desc(existant_points(:, 1), :); % Intermediate descriptor
-        temp_r_desc = temp_r_desc(existant_points(:, 1), :); % Intermediate descriptor
-        temp_l_pos = temp_l_pos(existant_points(:, 1)); % Intermediate pos_l
-        temp_r_pos = temp_r_pos(existant_points(:, 1)); % Intermediate pos_r
+        % Only keep the last remaining points
+        p = p(last_match(:, 1), :);
+        remaining_left_frame_descriptors = remaining_left_frame_descriptors(last_match(:, 1), :); % Intermediate descriptor
+        right_frame_descriptors = right_frame_descriptors(last_match(:, 1), :); % Intermediate descriptor
+        left_frame_possitions = left_frame_possitions(last_match(:, 1)); % Intermediate pos_l
+        right_frame_possitions = right_frame_possitions(last_match(:, 1)); % Intermediate pos_r
 
-        % Here we need to estimate the camera pose given the old and new 3d
-        % The est worldpose minimizes the reprojection error and prodces an
-        % image plane in the 3d space assuming the
-        if isempty(pose)
-            pose = estworldpose(temp_l_pos.Location, p, cameraIntrinsics(f, [cu1, cv1], size(lf)));
-            old_translation = pose.Translation;
-        else
-            intrinsics_l = cameraIntrinsics(f, [cu1, cv1], size(lf));
-            intrinsics_r = cameraIntrinsics(f, [cu2, cv2], size(rf));
-            % Since we know that the points are in order, we can change the
-            % origin of all of the points to be the first point in the
-            % point array and recompute the distance to the camera in
-            % relation to the first point, then in reality we should do
-            % this for all points
-            [relative_pose, rel_rot] = calc_rel_pose(temp_l_pos.Location, p, features.pos);
-            %E = estimateEssentialMatrix(temp_l_pos.Location,temp_r_pos.Location,intrinsics_l,intrinsics_r);
-            %translationFromEssentialMatrix(
-            distance_moved = norm(relative_pose)
-            velocity = distance_moved ./ (frame_times(i) - frame_times(i - 1)) .* 3.6
-            % Something seems to be off about the rotation vector
-            temp_old = old_translation;
-            %rel_rot = eye(3,3)-rel_rot;
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %                           Odometry                          %
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-            % The rotation matrix scales the room too. it does not just
-            % rotate, this should be solvable by scaling the matrix to be
-            % det(A) == 1
-            old_translation = double(old_translation + relative_pose')
+        intrinsics = cameraIntrinsics([fu1,fv1], [cu1 cv1], size(lf));
 
-            distance_after_rotation = norm(old_translation - temp_old)
-            pose = rigidtform3d(pose.R*rel_rot, old_translation)
-            scatter(old_translation(1),old_translation(2));
+        % Find the transformation between the two frames
+
+        % Formatting data for easier passing
+        if isempty(old_pose)
+            old_pose = struct("T", pose.Translation, "R", pose.R);
         end
 
-        %disp(pose.Translation);
+        % If we have the 3d points in relation to the old pose
+        % we can find the new pose in the old pose's coordinate system
+        % and then transform it to the world coordinate system
 
-        % Last time we do this, letsgo
-        temp_match = matchFeatures(temp_l_desc, features.l_desc);
+        % Solve PnP and compute the old pose
+        relative_pose = PnP(features.pos, left_frame_possitions.Location,intrinsics);
 
-        temp_l_pos = temp_l_pos(temp_match(:, 1)); % Intermediate pos_l
-        temp_r_pos = temp_r_pos(temp_match(:, 1)); % Intermediate pos_r
-        old_pos_l = features.l_pos(temp_match(:, 2), :);
-        p = p(temp_new_match(temp_match(:, 1))); %
-        old_points = old_points(temp_match(:, 1)); %
+        % If we have a good pose this will work
+        % pose = rigidtform3d(pose.A*rigidtform3d(relative_pose.R, relative_pose.T).A);
 
-        distances = old_points - p;
+        % This sollution is a bit more transparant and allows us to
+        % understand what is going wrong
+        % We might not need to rotate this. Not sure though
+        old_pose = struct("T", relative_pose.T*relative_pose.R  + old_pose.T, "R", relative_pose.R * old_pose.R, "Distance", relative_pose.Distance);
+        all_poses = [all_poses
+                old_pose.T
+                ];
 
-        for d = 1:length(distances)
-            distances(d) = norm(distances(d, :));
-        end
+        fprintf("Distance traveled in that frame %.2f[m] \n", old_pose.Distance);
+        fprintf("Velocity in that frame %.2f[km/h]\n", 3.6 * old_pose.Distance / (frame_times(i) - frame_times(i - 1)));
+        disp("Current translation in world coords starting at first frame")
+        disp(old_pose.T)
+        disp("Current rotation in relation to the first frame")
+        disp(old_pose.R)
+        figure(2);
+        % Plot the X Z plane, the Y plane should be static
+        scatter(all_poses(:, 1), all_poses(:, 2));
 
-        % Draw distances on the old image
-        %%hold on
-        %scatter(temp_l_pos.Location(:, 1), temp_l_pos.Location(:, 2));
-        % Old x locations
-        x = temp_l_pos.Location(:, 1);
-        y = temp_l_pos.Location(:, 2);
-        % Old y locations
-        ox = old_pos_l.Location(:, 1);
-        oy = old_pos_l.Location(:, 2);
-
-        for index = 1:length(x)
-            %plot([x(index), ox(index)], [y(index), oy(index)]);
-        end
-
-        for j = 1:length(distances)
-            lable = sprintf("%f [m]", norm(distances(j)));
-            %text(x(j),y(j),lable,"Color",'g');
-        end
-
-        %hold off
-
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %     I still thik we need this part for improved stability   %
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Find points that exist in both the old and the new right and left
         % images
 
         % Add new features
-        for index = 1:length(inter_frame)
-
-            if isempty(find(lm(:, 1) == inter_frame(index, 1))) && isempty(find(rm(:, 2) == inter_frame(index, 2)))
-                lm = [lm; inter_frame(index, 1), 0];
-                rm = [rm; inter_frame(index, 2), 0];
-            end
-
-        end
+        %for index = 1:length(inter_frame)
+        %    if isempty(find(lm(:, 1) == inter_frame(index, 1))) && isempty(find(rm(:, 2) == inter_frame(index, 2)))
+        %        lm = [lm; inter_frame(index, 1), 0];
+        %        rm = [rm; inter_frame(index, 2), 0];
+        %    end
+        %end
 
         % possibly add features
-        l_desc = l_desc(lm(:, 1), :);
-        l_pos = l_pos(lm(:, 1));
-        r_desc = r_desc(rm(:, 1), :);
-        r_pos = r_pos(rm(:, 1));
+        %l_desc = l_desc(lm(:, 1), :);
+        %l_pos = l_pos(lm(:, 1));
+        %r_desc = r_desc(rm(:, 1), :);
+        %r_pos = r_pos(rm(:, 1));
 
     end
 
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %                Basic boiler plate for the problem           %
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Match the descriptors
     matched = matchFeatures(l_desc, r_desc);
 
@@ -227,30 +180,27 @@ for i = 1:length(cam0.Files)
     l_desc = l_desc(matched(1:ptk, 1), :);
     r_desc = r_desc(matched(1:ptk, 2), :);
 
-    %figure; imshow(lf);
     x = l_pos.Location(:, 1);
     y = l_pos.Location(:, 2);
     dist = zeros(1, length(l_pos));
 
     p = [];
-    % Compute distance
+    % Triangulate the 3D points
     for itter = 1:length(dist)
         p = [p; triangulate(round(l_pos(itter).Location), round(r_pos(itter).Location), p1, p2)];
-        dist(itter) = sqrt(sum(p(end).^2));
+        %dist(itter) = sqrt(sum(p(end).^2));
     end
 
-    %hold on
-    %scatter(x, y);
 
-    for j = 1:length(dist)
-        lable = sprintf("%f [m]", norm(dist(j)));
-        %text(x(j),y(j),lable,"Color",'g');
-    end
+    %for j = 1:length(dist)
+    %    lable = sprintf("%f [m]", norm(dist(j)));
+    %    %text(x(j),y(j),lable,"Color",'g');
+    %end
 
-    %hold off
 
+    % Store the features untill the next itteration
     features = struct( ...
-        "pos", p, ... % 3d locations
+    "pos", p, ... % 3d locations
         "l_desc", l_desc, ... % Feature descriptors in left image
         "r_desc", r_desc, ... % -||- right image
         "l_pos", l_pos, ...
@@ -259,98 +209,54 @@ for i = 1:length(cam0.Files)
 
 end
 
-function [translation, rotation] = calc_rel_pose(points_img, ponts_world_current, points_world_old)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                         FUNCTIONS                          %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Helper functions to remove clutter from the main function
 
-    % This is based on https://buq2.com/camera-position-estimation-from-known-3d-points/
-    % Although I am not entierly sure how he solves the system,
-    % does he use the
+function [features, left_frame_descriptors, left_frame_possitions, right_frame_descriptors, right_frame_possitions, last_match] = find_remaining_points( ...
+    old_features, left_frame_descriptors, left_frame_possitions, right_frame_descriptors, right_frame_possitions)
 
-    % Computes the relative pose between two cameras given a set of
-    % 3d points in the first camera and the corresponding 2d points
-    % in the second camera
+    % Rename variables for easier reading
+    features = old_features;
 
-    % This is done by solving the following system of equations
-    % [p1(1) p1(2) p1(3) 1 0 0 0 0 -p2(1)*p1(1) -p2(1)*p1(2) -p2(1)*p1(3) -p2(1)] [R11 R12 R13 T1] = 0
-    % [0 0 0 0 p1(1) p1(2) p1(3) 1 -p2(2)*p1(1) -p2(2)*p1(2) -p2(2)*p1(3) -p2(2)] [R21 R22 R23 T2] = 0
-    % [0 0 0 0 0 0 0 0 p1(1) p1(2) p1(3) 1 -p2(3)*p1(1) -p2(3)*p1(2) -p2(3)*p1(3) -p2(3)] [R31 R32 R33 T3] = 0
+    % Match the descriptors over time in the left image
+    feed_formward_left_frame_matches = matchFeatures(left_frame_descriptors, features.l_desc); % Left intra frame match
+    %p = p(lm(:, 2));
 
-    A = zeros(3 * length(points_img), 12);
+    features.l_desc = features.l_desc(feed_formward_left_frame_matches(:, 2), :);
+    features.l_pos = features.l_pos(feed_formward_left_frame_matches(:, 2), :);
+    features.r_desc = features.r_desc(feed_formward_left_frame_matches(:, 2), :);
 
-    for i = 1:size(points_img, 1)
-        A(3 * i - 2, :) = [points_world_old(i, 1) points_world_old(i, 2) points_world_old(i, 3) 1 0 0 0 0 -points_img(i, 1) * points_world_old(i, 1) -points_img(i, 1) * points_world_old(i, 2) -points_img(i, 1) * points_world_old(i, 3) -points_img(i, 1)];
-        A(3 * i - 1, :) = [0 0 0 0 points_world_old(i, 1) points_world_old(i, 2) points_world_old(i, 3) 1 -points_img(i, 2) * points_world_old(i, 1) -points_img(i, 2) * points_world_old(i, 2) -points_img(i, 2) * points_world_old(i, 3) -points_img(i, 2)];
-    end
+    % Match the descriptors over time in the right image
+    feed_formward_right_frame_matches = matchFeatures(right_frame_descriptors, features.r_desc); % Right intra frame match
 
-    % Solve the system of equations
-    [~, ~, V] = svd(A);
-    % Extract the last column
-    P = V(:, end);
+    % Now we have the old points
+    %old_points = p(rm(:, 2));
+    features.l_desc = features.l_desc(feed_formward_right_frame_matches(:, 2), :);
+    features.l_pos = features.l_pos(feed_formward_right_frame_matches(:, 2), :);
+    features.r_desc = features.r_desc(feed_formward_right_frame_matches(:, 2), :);
 
-    % Reshape the result into the extrinsic matrix
-    % The first 3 rows are the rotation matrix
-    % The last row is the translation vector
-    P = reshape(P, 4, 3)';
+    left_frame_descriptors = left_frame_descriptors(feed_formward_left_frame_matches(:, 1), :);
+    left_frame_possitions = left_frame_possitions(feed_formward_left_frame_matches(:, 1));
 
-    % Decompose to rotation and translation
-    [rotation, translation] = decomposeP(P);
+    right_frame_descriptors = right_frame_descriptors(feed_formward_right_frame_matches(:, 1), :);
+    right_frame_possitions = right_frame_possitions(feed_formward_right_frame_matches(:, 1));
 
-    function [rotation, translation] = decomposeP(P)
-        % Decompose the projection matrix into a rotation and
-        % translation
+    % Match the descriptors between the left and right image
+    current_frame_matches = matchFeatures(left_frame_descriptors, right_frame_descriptors);
 
-        % Extract the rotation matrix
-        rotation = P(:, 1:3);
+    % Get new valid points
+    left_frame_descriptors = left_frame_descriptors(current_frame_matches(:, 1), :);
+    right_frame_descriptors = right_frame_descriptors(current_frame_matches(:, 2), :);
+    left_frame_possitions = left_frame_possitions(current_frame_matches(:, 1));
+    right_frame_possitions = right_frame_possitions(current_frame_matches(:, 2));
 
-        % Extract the translation vector
-        translation = P(:, 4);
+    % Now that we know what features still exist between the two cameras we
+    % can remove the ones that are out of view from atleast one of the images
+    last_match = matchFeatures(left_frame_descriptors, features.l_desc);
+    features.pos = features.pos(last_match(:, 2), :);
+    features.l_desc = features.l_desc(last_match(:, 2), :);
+    features.l_pos = features.l_pos(last_match(:, 2), :);
 
-        % The rotation matrix needs to fullfill the following
-        %def isRotationMatrix(M):
-        %    tag = False
-        %    I = np.identity(M.shape[0])
-        %    if np.all((np.matmul(M, M.T)) == I) and (np.linalg.det(M)==1): tag = True
-        %    return tag  
-        
-        function tag = isRotationMatrix(m)
-            tag = false;
-            I = eye(size(m, 1));
-            if all(all(m * m' == I)) && det(m) == 1
-                tag = true;
-            end
-        end
-
-        % If the rotation matrix is not a rotation matrix, then
-        % we need to correct it so the check %holds
-        if ~isRotationMatrix(rotation)
-            % Now we need to correct the rotation matrix
-            if det(rotation) ~= 1
-                % Adjust the determinant to be 1
-                rotation = rotation./(sign(det(rotation))*abs(det(rotation)).^(1/3));
-            end
-            
-            if all(all(rotation * rotation' ~= eye(size(rotation, 1))))
-                % Adjust the rotation matrix to be orthogonal
-                
-                % First we need to make the rotation matrix orthonormal
-                [U, ~, V] = svd(rotation);
-                rotation = U * V';
-            end
-        end
-
-        % Normalize the rotation matrix
-
-        % Make sure that the rotation matrix is a rotation matrix
-        % and not a reflection
-        %if det(rotation) < 0
-        %    rotation(:, 3) = -rotation(:, 3);
-        %end
-
-    end
-
-    return
-end
-
-function [new_points, origin] = change_origin(index, points)
-    origin = points(index);
-    new_points = points - index; % Move all of the points relative to the new origin
 end
