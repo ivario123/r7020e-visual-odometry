@@ -1,6 +1,6 @@
 clear
 clc
-close all
+%close all
 % Get the camera feeds
 cam0 = imageDatastore("./kitti/00/image_0/*", "FileExtensions", ".png");
 cam1 = imageDatastore("./kitti/00/image_1/*", "FileExtensions", ".png");
@@ -42,6 +42,9 @@ clear fu1 fu2 fv1 fv2
 
 features = [];
 pose = []
+figure;
+hold on
+scatter(0,0)
 
 for i = 1:length(cam0.Files)
     lf = readimage(cam0, i);
@@ -148,10 +151,11 @@ for i = 1:length(cam0.Files)
             % The rotation matrix scales the room too. it does not just
             % rotate, this should be solvable by scaling the matrix to be
             % det(A) == 1
-            old_translation = old_translation*pose.R + relative_pose' *rel_rot
+            old_translation = double(old_translation + relative_pose')
 
             distance_after_rotation = norm(old_translation - temp_old)
-            pose = rigidtform3d(pose.A * rigidtform3d(rel_rot, relative_pose).A)
+            pose = rigidtform3d(pose.R*rel_rot, old_translation)
+            scatter(old_translation(1),old_translation(2));
         end
 
         %disp(pose.Translation);
@@ -172,7 +176,7 @@ for i = 1:length(cam0.Files)
         end
 
         % Draw distances on the old image
-        hold on
+        %%hold on
         %scatter(temp_l_pos.Location(:, 1), temp_l_pos.Location(:, 2));
         % Old x locations
         x = temp_l_pos.Location(:, 1);
@@ -190,7 +194,7 @@ for i = 1:length(cam0.Files)
             %text(x(j),y(j),lable,"Color",'g');
         end
 
-        hold off
+        %hold off
 
         % Find points that exist in both the old and the new right and left
         % images
@@ -235,7 +239,7 @@ for i = 1:length(cam0.Files)
         dist(itter) = sqrt(sum(p(end).^2));
     end
 
-    hold on
+    %hold on
     %scatter(x, y);
 
     for j = 1:length(dist)
@@ -243,7 +247,7 @@ for i = 1:length(cam0.Files)
         %text(x(j),y(j),lable,"Color",'g');
     end
 
-    hold off
+    %hold off
 
     features = struct( ...
         "pos", p, ... % 3d locations
@@ -316,7 +320,7 @@ function [translation, rotation] = calc_rel_pose(points_img, ponts_world_current
         end
 
         % If the rotation matrix is not a rotation matrix, then
-        % we need to correct it so the check holds
+        % we need to correct it so the check %holds
         if ~isRotationMatrix(rotation)
             % Now we need to correct the rotation matrix
             if det(rotation) ~= 1
