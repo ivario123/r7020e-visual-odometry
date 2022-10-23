@@ -143,15 +143,11 @@ for i = 1:length(cam0.Files)
             % Something seems to be off about the rotation vector
             temp_old = old_translation;
             %rel_rot = eye(3,3)-rel_rot;
-
-            % The rotation matrix scales the room too. it does not just
-            % rotate, this should be solvable by scaling the matrix to be
-            % det(A) == 1
             old_translation = old_translation+relative_pose'*rel_rot
             
             distance_after_rotation = norm(old_translation-temp_old)
-            
-            pose = rigidtfrom3d(pose.A*rigidtform3d(rel_rot,relative_pose).A);
+
+            pose = rigidtform3d(pose.R,old_translation);
         end
 
         %disp(pose.Translation);
@@ -328,13 +324,13 @@ function [translation,rotation]= calc_rel_pose(points_img,p1,p2)
                 % appended to it representing magnitude changes in each
                 % direction, this is equivalent to translation.
                 A = [A
-                    0 0 0 0 -X -Y -Z -W X*y Y*y Z*x y
-                    X Y Z W  0  0  0  0 X*x Y*x Z*x x
+                    0 0 0 0 -X -Y -Z -W X*x Y*x Z*x x
+                    X Y Z W  0  0  0  0 X*y Y*y Z*y y
                     ];
             end
             % Decompose the matrix using single value decompision. Pick the
             % smallest eigenvalue zero vector. V(end,:)
-            [~,~,V]=svd(A);%(A'*A);
+            [~,~,V]=svd(A);
             %S = V(1:12,end);
             % represent a cross product of the 2d imgage point and the 
             % reprojected 3d points
@@ -342,7 +338,6 @@ function [translation,rotation]= calc_rel_pose(points_img,p1,p2)
             % This might be better idk
             p = reshape(V(:,end),[3,4]);
             translation = p(:,4);
-            % Reshape the rotation to make diagonal elements equal to one
             rotation = double(p(1:3,1:3));
             return
 
