@@ -109,13 +109,14 @@ for i = 1:length(cam0.Files)
 
         % Old pairs that exist in the left frame
         existant_points = matchFeatures(temp_l_desc, features.l_desc);
-        features.pos = features.pos(existant_points(:,2),:);
+        features.pos = features.pos(existant_points(:, 2), :);
         p = [];
         % Compute 3d coord
         for itter = 1:size(temp_l_pos, 1)
             p = [p; triangulate(round(temp_l_pos(itter).Location), round(temp_r_pos(itter).Location), p1, p2)];
         end
-        p = p(existant_points(:,1),:);
+
+        p = p(existant_points(:, 1), :);
         temp_l_desc = temp_l_desc(existant_points(:, 1), :); % Intermediate descriptor
         temp_r_desc = temp_r_desc(existant_points(:, 1), :); % Intermediate descriptor
         temp_l_pos = temp_l_pos(existant_points(:, 1)); % Intermediate pos_l
@@ -123,23 +124,23 @@ for i = 1:length(cam0.Files)
 
         % Here we need to estimate the camera pose given the old and new 3d
         % The est worldpose minimizes the reprojection error and prodces an
-        % image plane in the 3d space assuming the 
+        % image plane in the 3d space assuming the
         if isempty(pose)
             pose = estworldpose(temp_l_pos.Location, p, cameraIntrinsics(f, [cu1, cv1], size(lf)));
             old_translation = pose.Translation;
         else
-            intrinsics_l = cameraIntrinsics(f,[cu1,cv1],size(lf));
-            intrinsics_r = cameraIntrinsics(f,[cu2,cv2],size(rf));
+            intrinsics_l = cameraIntrinsics(f, [cu1, cv1], size(lf));
+            intrinsics_r = cameraIntrinsics(f, [cu2, cv2], size(rf));
             % Since we know that the points are in order, we can change the
             % origin of all of the points to be the first point in the
             % point array and recompute the distance to the camera in
             % relation to the first point, then in reality we should do
             % this for all points
-            [relative_pose,rel_rot] = calc_rel_pose(temp_l_pos.Location,p,features.pos);
+            [relative_pose, rel_rot] = calc_rel_pose(temp_l_pos.Location, p, features.pos);
             %E = estimateEssentialMatrix(temp_l_pos.Location,temp_r_pos.Location,intrinsics_l,intrinsics_r);
             %translationFromEssentialMatrix(
             distance_moved = norm(relative_pose)
-            velocity = distance_moved./(frame_times(i)-frame_times(i-1)).*3.6
+            velocity = distance_moved ./ (frame_times(i) - frame_times(i - 1)) .* 3.6
             % Something seems to be off about the rotation vector
             temp_old = old_translation;
             %rel_rot = eye(3,3)-rel_rot;
@@ -147,11 +148,10 @@ for i = 1:length(cam0.Files)
             % The rotation matrix scales the room too. it does not just
             % rotate, this should be solvable by scaling the matrix to be
             % det(A) == 1
-            old_translation = old_translation+relative_pose'*rel_rot
-            
-            distance_after_rotation = norm(old_translation-temp_old)
-            
-            pose = rigidtfrom3d(pose.A*rigidtform3d(rel_rot,relative_pose).A);
+            old_translation = old_translation*pose.R + relative_pose' *rel_rot
+
+            distance_after_rotation = norm(old_translation - temp_old)
+            pose = rigidtform3d(pose.A * rigidtform3d(rel_rot, relative_pose).A)
         end
 
         %disp(pose.Translation);
@@ -254,149 +254,99 @@ for i = 1:length(cam0.Files)
     );
 
 end
-function [translation,rotation]= calc_rel_pose(points_img,p1,p2)
-            
 
-            % This is based on https://buq2.com/camera-position-estimation-from-known-3d-points/
-            % Although I am not entierly sure how he solves the system,
-            % does he use the 
+function [translation, rotation] = calc_rel_pose(points_img, ponts_world_current, points_world_old)
 
+    % This is based on https://buq2.com/camera-position-estimation-from-known-3d-points/
+    % Although I am not entierly sure how he solves the system,
+    % does he use the
 
-            % Now we use the 3d-2d VO computations to solve pnp
-            %syms x;
-            %syms y;
-            %syms w;
-            %syms X;
-            %syms Y;
-            %syms Z;
-            %syms W;
-            %syms p11;
-            %syms p12;
-            %syms p13;
-            %syms p14;
-            %syms p21;
-            %syms p22;
-            %syms p23;
-            %syms p24;
-            %syms p31;
-            %syms p32;
-            %syms p33;
-            %syms p34;
-            A = [];
-            for index=1:size(points_img,1)
-                point_img = points_img(index,:);
-                w = norm(point_img);
-                point_img = point_img./w;
-                % Either we use the points in our current view here, or the
-                % corresponding points in the old view. The second
-                % alternative I think would yeild a relative pose since the
-                % old 3d points are in reference to the old camera location
-                % so moving the projection result to new points in the 3d
-                % 2d coords means the camera moved, solving the system
-                % cross(x_2d,P*X_3d) == 0
-                % should yield the projection matrix needed, this includes
-                % translation and rotation relative to the origin.
+    % Computes the relative pose between two cameras given a set of
+    % 3d points in the first camera and the corresponding 2d points
+    % in the second camera
 
-                % Using the result from the https://buq2.com/camera-position-estimation-from-known-3d-points/
-                % yields this implementation
-                point_world = p2(index,:);
-                W = norm(point_world);
-                point_world = point_world./W;
-                % Point in image should be 3d and normalized
-                x = point_img(1);
-                y = point_img(2);
-                % Point in world should be 4d and normalized
-                X = point_world(1);
-                Y = point_world(2);
-                Z = point_world(3); 
-    
-                %x_world = [X;Y;Z;W];
-                %x_img = [0,-w,y;w,0,-x;-y,x,0];
+    % This is done by solving the following system of equations
+    % [p1(1) p1(2) p1(3) 1 0 0 0 0 -p2(1)*p1(1) -p2(1)*p1(2) -p2(1)*p1(3) -p2(1)] [R11 R12 R13 T1] = 0
+    % [0 0 0 0 p1(1) p1(2) p1(3) 1 -p2(2)*p1(1) -p2(2)*p1(2) -p2(2)*p1(3) -p2(2)] [R21 R22 R23 T2] = 0
+    % [0 0 0 0 0 0 0 0 p1(1) p1(2) p1(3) 1 -p2(3)*p1(1) -p2(3)*p1(2) -p2(3)*p1(3) -p2(3)] [R31 R32 R33 T3] = 0
 
+    A = zeros(3 * length(points_img), 12);
 
-                % Append new points to the matrix A    
-                %A = [A
-                %    0 0 0 0 -X*w -Y*w -Z*w -W*w X*y Y*y Z*y W*y
-                %    X*w Y*x Z*x W*x 0 0 0 0 -X*x -Y*x -Z*x W*x
-                %    ];
-                % 
-                % So the space that the 3d points is defined in now is a
-                % space consisting of 3 rotation dimensions and 1 magnitude
-                % dimension, this means that a matrix that projects from
-                % this space to the 2d x,y,mag plane will have a 3x3 matrix
-                % first that contains rotation info and a 3x1 vector
-                % appended to it representing magnitude changes in each
-                % direction, this is equivalent to translation.
-                A = [A
-                    0 0 0 0 -X -Y -Z -W X*y Y*y Z*x y
-                    X Y Z W  0  0  0  0 X*x Y*x Z*x x
-                    ];
+    for i = 1:size(points_img, 1)
+        A(3 * i - 2, :) = [points_world_old(i, 1) points_world_old(i, 2) points_world_old(i, 3) 1 0 0 0 0 -points_img(i, 1) * points_world_old(i, 1) -points_img(i, 1) * points_world_old(i, 2) -points_img(i, 1) * points_world_old(i, 3) -points_img(i, 1)];
+        A(3 * i - 1, :) = [0 0 0 0 points_world_old(i, 1) points_world_old(i, 2) points_world_old(i, 3) 1 -points_img(i, 2) * points_world_old(i, 1) -points_img(i, 2) * points_world_old(i, 2) -points_img(i, 2) * points_world_old(i, 3) -points_img(i, 2)];
+    end
+
+    % Solve the system of equations
+    [~, ~, V] = svd(A);
+    % Extract the last column
+    P = V(:, end);
+
+    % Reshape the result into the extrinsic matrix
+    % The first 3 rows are the rotation matrix
+    % The last row is the translation vector
+    P = reshape(P, 4, 3)';
+
+    % Decompose to rotation and translation
+    [rotation, translation] = decomposeP(P);
+
+    function [rotation, translation] = decomposeP(P)
+        % Decompose the projection matrix into a rotation and
+        % translation
+
+        % Extract the rotation matrix
+        rotation = P(:, 1:3);
+
+        % Extract the translation vector
+        translation = P(:, 4);
+
+        % The rotation matrix needs to fullfill the following
+        %def isRotationMatrix(M):
+        %    tag = False
+        %    I = np.identity(M.shape[0])
+        %    if np.all((np.matmul(M, M.T)) == I) and (np.linalg.det(M)==1): tag = True
+        %    return tag  
+        
+        function tag = isRotationMatrix(m)
+            tag = false;
+            I = eye(size(m, 1));
+            if all(all(m * m' == I)) && det(m) == 1
+                tag = true;
             end
-            % Decompose the matrix using single value decompision. Pick the
-            % smallest eigenvalue zero vector. V(end,:)
-            [~,~,V]=svd(A);%(A'*A);
-            %S = V(1:12,end);
-            % represent a cross product of the 2d imgage point and the 
-            % reprojected 3d points
-            %p = reshape(S,[3,4]);
-            % This might be better idk
-            p = reshape(V(:,end),[3,4]);
-            translation = p(:,4);
-            % Reshape the rotation to make diagonal elements equal to one
-            rotation = double(p(1:3,1:3));
-            return
+        end
 
-            
-           
-
-
-
-
-
-
-
-
-
-
-
-
-            assert(size(p1,1) == size(p2,1));
-            total_translation = [0,0,0];
-            total_rotation = [0,0,0];
-            for index = 1:size(p2,1)
-                new_origin = p1(index,:);
-                new_translation = new_pose-new_origin; % Since the old p was relative to the new_pose
-
-                old_origin = p2(index,:);
-                old_translation = pose-old_origin;
-                % Check that the value is resonalbe
-                if index == 1 || norm(abs(old_translation-new_translation)) < 2*norm(abs(total_translation))
-                    % Time to compute 
-                    p_i = old_translation-new_translation;
-                    mag = norm(p_i);
-                    x=[1,0,0];
-                    y=[0,1,0];
-                    z=[0,0,1];
-                    angle = @(vec1,vec2,mag1,mag2) asin(norm(cross(vec1,vec2))/(mag1*mag2));
-                    rotations = [angle(p_i,x,mag,1),angle(p_i,y,mag,1),angle(p_i,z,mag,1)];
-                    if index == 1
-                        total_rotation = rotations;
-                        total_translation = p_i;
-                    else
-                        total_rotation = (total_rotation+rotations)./2;
-                        total_translation = (total_translation+p_i)./2;
-                    end
-                end
+        % If the rotation matrix is not a rotation matrix, then
+        % we need to correct it so the check holds
+        if ~isRotationMatrix(rotation)
+            % Now we need to correct the rotation matrix
+            if det(rotation) ~= 1
+                % Adjust the determinant to be 1
+                rotation = rotation./(sign(det(rotation))*abs(det(rotation)).^(1/3));
             end
-            Rx = [1 0 0; 0 cos(total_rotation(1)) -sin(total_rotation(1)); 0 sin(total_rotation(1)) cos(total_rotation(1))]
-            Ry = [cos(total_rotation(2)) 0 sin(total_rotation(2)); 0 1 0; -sin(total_rotation(2)) 0 cos(total_rotation(2))]
-            Rz = [cos(total_rotation(3)) -sin(total_rotation(3)) 0; sin(total_rotation(3)) cos(total_rotation(3)) 0; 0 0 1]
-            rotation = Rx*Ry*Rz;
-            % Compute average distance moved relative to the points, this
-            % assumes all points have stayed in one spot
-            translation = total_translation;
+            
+            if all(all(rotation * rotation' ~= eye(size(rotation, 1))))
+                % Adjust the rotation matrix to be orthogonal
+                
+                % First we need to make the rotation matrix orthonormal
+                [U, ~, V] = svd(rotation);
+                rotation = U * V';
+            end
+        end
+
+        % Normalize the rotation matrix
+
+        % Make sure that the rotation matrix is a rotation matrix
+        % and not a reflection
+        %if det(rotation) < 0
+        %    rotation(:, 3) = -rotation(:, 3);
+        %end
+
+    end
+
+    return
 end
-function [new_points,origin] = change_origin(index,points)
+
+function [new_points, origin] = change_origin(index, points)
     origin = points(index);
-    new_points = points-index; % Move all of the points relative to the new origin
+    new_points = points - index; % Move all of the points relative to the new origin
 end
