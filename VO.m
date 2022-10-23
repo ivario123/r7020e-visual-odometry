@@ -48,6 +48,7 @@ clear fu1 fu2 fv1 fv2
 
 features = [];
 pose = [];
+figure;
 for i = 1:length(cam0.Files)
     lf = readimage(cam0,i);
     rf = readimage(cam1,i);
@@ -60,194 +61,60 @@ for i = 1:length(cam0.Files)
     % Extract descriptors
     [l_desc,l_pos] = extractFeatures(lf,f_l);
     [r_desc,r_pos] = extractFeatures(rf,f_r);
-
     % If it's not the first iteration we want to match features
     if ~isempty(features)
-        
-        % This looks really messy and I will likely forget how it works
-        % since it's spaghetti
-
-        % here's the idea
-
-        % 1. Find all the matching features in the left images 
-        % 2. Find all the matching features in the right image 
-        % 3. Remove any feature not in these sets (match)
-        % 4. Find the position of all of the remaining points in both the 
-        %       left and the right images at this timestep 
-        % 5. Use triangulate to find the 3d points for every feature 
-        % 6. Compute the difference between every feature NEEDED?
-
-
-        % DOES INTER MEAN BETWEEN CAMERAS AND INTRA BETWEEN FRAMES AND SAME CAMERA?
-
         % Match the descriptors for new frame
         inter_frame = matchFeatures(l_desc,r_desc);
-
-        % Left intra frame matches (match between previous and current frame)
-        lm = matchFeatures(l_desc,features.l_desc);
-        p = p(lm(:,2));
-
-        % Remove features that aren't in both frames
-        features.l_desc = features.l_desc(lm(:,2),:);
-        features.l_pos = features.l_pos(lm(:,2),:);
-        features.r_desc = features.r_desc(lm(:,2),:);
-        
-        % Right intra frame matches
-        rm = matchFeatures(r_desc,features.r_desc);
-        
-        % Remove features that aren't in both frames
-        features.l_desc = features.l_desc(rm(:,2),:);
-        features.l_pos = features.l_pos(rm(:,2),:);
-        features.r_desc = features.r_desc(rm(:,2),:);
-
-        % Now we have the old points
-        old_points = p(rm(:,2));
-
-
-        % Old points that still exist in at least one perspective
-        % but represented in the new images     REPLACE "temp" with "old" or "prev"?
-        % Left side
-        temp_l_desc = l_desc(lm(:,1),:);
-        temp_l_pos = l_pos(lm(:,1));
-        % Right side
-        temp_r_desc = r_desc(rm(:,1),:);
-        temp_r_pos = r_pos(rm(:,1));
-        
-
-        % Old pairs that exist (IN CURRENT FRAME?)
-        temp_new_match = matchFeatures(temp_l_desc,temp_r_desc);
-
-        % Get new valid points (remove those that weren't found in both
-        % frames)
-        temp_l_desc = temp_l_desc(temp_new_match(:,1),:);     % Intermediate descriptor
-        temp_r_desc = temp_r_desc(temp_new_match(:,2),:);     % Intermediate descriptor
-        temp_l_pos = temp_l_pos(temp_new_match(:,1));         % Intermediate pos_l
-        temp_r_pos = temp_r_pos(temp_new_match(:,2));         % Intermediate pos_r
-
-        p = [];
-        % Compute 3D coordinates for current frame features (relative to camera?) 
-        for it = 1:size(temp_l_pos,1)
-            p  = [p;triangulate(temp_l_pos(it).Location,temp_r_pos(it).Location,P11,P22)];
-%             p  = [p;triangulate(round(temp_l_pos(it).Location),round(temp_r_pos(it).Location),P1,P2)];
-        end
-
-        
-
-
+        prev_match = matchFeatures(l_desc,features.l_desc);
         % Estimate the camera pose given the old and new 3D
         intrinsics = cameraIntrinsics(f,[cu1,cv1],size(lf));
         if isempty(pose)
-            worldPoints = p;
-            pose = estworldpose(temp_l_pos.Location,p,intrinsics);
-        else % TWO ALTERNATIVES
-            % True location = camera location + orientation*(points relative to camera)
-            worldPoints = pose.translation + pose.R*p;
-            pose = rigidtform3d(pose.A*estworldpose(temp_l_pos.Location,worldPoints,intrinsics).A);
-            
+            pose = estworldpose(l_pos(prev_match(:,1),:).Location,features.p(prev_match(:,2),:),intrinsics);
+            relativePose = []; % Code crashed since it was uninit, just check if this is empty
+        else 
             % Or is this the way to go?
             % Essential matrix
-            matchedPoints1 = features.l_pos; % not sure if these are the right matchpoints
-            matchedPoints2 = features.r_pos;
+            matchedPoints1 = l_pos(inter_frame(:,1),:); % not sure if these are the right matchpoints
+            matchedPoints2 = r_pos(inter_frame(:,2),:);
             cameraParams = intrinsics; % this argument should be supported as well
-            [E,inliersIndex] = estimateEssentialMatrix(matchedPoints1,matchedPoints2,cameraParams);
+            [E,inliersIndex] = estimateEssentialMatrix(matchedPoints1,matchedPoints2,cameraParams); % Camera essential should not change between two timestamps
 
-            % Relative pose
-            inlierPoints1 = matchedPoints1(inliersIndex);
-            inlierPoints2 = matchedPoints1(inliersIndex);
-
-            % Example says:
-%             matchedPoints1 = prevPoints(indexPairs(:, 1));
-%             matchedPoints2 = currPoints(indexPairs(:, 2))
-
-            relativePose = estrelpose(E,intrinsics,inlierPoints1,inlierPoints2);
-            pose = rigidtform3d(pose.A*relativePose.A);
+            relativePose = estrelpose(E,intrinsics,matchedPoints1,matchedPoints2);
+            pose = rigidtform3d(pose.R*relativePose.R,relativePose.Translation+pose.Translation);
         end
-        disp(pose.Translation);
-
 
         % Add the current view to the view set.
         viewId = i;
-        currPoints = temp_l_pos(it).Location; % These unnecessary lines can be inserted to the function and removed.
-        vSet = addView(vSet, viewId, pose, Points=currPoints);
+        currPoints = l_pos.Location; % These unnecessary lines can be inserted to the function and removed.
+        vSet = addView(vSet, viewId, pose, "Points",l_pos,"Features",l_desc);
 
-        % Store the point matches between the previous and the current views. 
-        % NOT SURE WHAT TO INSERT AS LAST ARGUMENT
-        vSet = addConnection(vSet, viewId-1, viewId, relativePose, Matches=indexPairs(inlierIdx,:));
+        % We can't make connections until the third itteration since the
+        % second one does not yet have the point cloud information from the
+        % first
+        if ~isempty(relativePose)
+            % Store the point matches between the previous and the current views. 
+            % NOT SURE WHAT TO INSERT AS LAST ARGUMENT
 
-        % 2-D points in an image that match across multiple views
-        % Each track contains 2-D projections of the same 3-D world point.
-        tracks = findTracks(vSet);
-        
-        % Returns absolute poses associated with the views
-        cameraPoses = poses(vSet);
-
-        % IS THE PREVIOUS TRIANGULATION NEEDED NOW? (I think so)
-        xyzPoints = triangulateMultiview(tracks, camPoses, intrinsics);
-
-        % Bundle adjustment (a more accurate estimate of local trajectory,
-        % an iterative refinement over the last m poses)
-        % [xyzRefinedPoints,refinedPoses] = bundleAdjustment(xyzPoints,pointTracks,cameraPoses,intrinsics) REMOVE 
-        [xyzRefinedPoints,refinedPoses,reprojectionErrors] = bundleAdjustment(xyzPoints,tracks,cameraPoses,intrinsics);
-
-        % Update viewset with refined poses
-        vSet = updateView(vSet,refinedPoses);
-        
-        % Match new left with old left
-        temp_match = matchFeatures(temp_l_desc,features.l_desc);
-
-        % remove those that weren't found in both frames
-        temp_l_pos = temp_l_pos(temp_match(:,1));           % Intermediate pos_l
-        temp_r_pos = temp_r_pos(temp_match(:,1));           % Intermediate pos_r
-        old_pos_l = features.l_pos(temp_match(:,2),:);
-        p = p(temp_new_match(temp_match(:,1)));             % What is this?
-        old_points = old_points(temp_match(:,1));           %
-        
-        distances = old_points-p;
-        for d = 1:length(distances)
-            distances(d) = norm(distances(d,:));
+            % Here we create an indexpair
+            index_pair = matchFeatures(features.l_desc,features.r_desc);
+            vSet = addConnection(vSet, viewId, viewId-1, relativePose,"Matches",round(l_pos(prev_match(:,1)).Location));
+    
+            % 2-D points in an image that match across multiple views
+            % Each track contains 2-D projections of the same 3-D world point.
+            tracks = findTracks(vSet);
+            
+            % Returns absolute poses associated with the views
+            cameraPoses = poses(vSet);
+            [xyzPoints,errors] = triangulateMultiview(tracks, cameraPoses, intrinsics);
+            [xyzRefinedPoints,refinedPoses,reprojectionErrors] = bundleAdjustment(xyzPoints,tracks,cameraPoses,intrinsics);
+    
+            % Update viewset with refined poses
+            vSet = updateView(vSet,refinedPoses);
+            
         end
-
-% Not needed I think
-%         % Draw distances on the old image
-%         hold on
-%         scatter(temp_l_pos.Location(:,1),temp_l_pos.Location(:,2));
-%         % Old x locations
-%         x = temp_l_pos.Location(:,1);
-%         y = temp_l_pos.Location(:,2);
-%         % Old y locations
-%         ox = old_pos_l.Location(:,1);
-%         oy = old_pos_l.Location(:,2);
-% 
-%         for index = 1:length(x)
-%             plot([x(index),ox(index)],[y(index),oy(index)]);
-%         end
-%         for j = 1:length(distances)
-%             label = sprintf("%f [m]",norm(distances(j)));
-%             text(x(j),y(j),lable,"Color",'g');
-%         end
-%         hold off
-
-        
-
-        
-        % Find points that exist in both the old and the new right and left
-        % images
-        
-
-        % Add new features
-        for index = 1:length(inter_frame)
-            if isempty(find(lm(:,1) == inter_frame(index,1)))  && isempty(find(rm(:,2) == inter_frame(index,2)))
-                lm = [lm;inter_frame(index,1),0];
-                rm = [rm;inter_frame(index,2),0];
-            end
-        end
-
-        % Possibly add new features
-        l_desc = l_desc(lm(:,1),:);
-        l_pos = l_pos(lm(:,1));
-        r_desc = r_desc(rm(:,1),:);
-        r_pos = r_pos(rm(:,1));
-
+        disp("Current position : ")
+        disp(vSet.Views(end,:).AbsolutePose.Translation);
+        disp("---------------")
     end
 
 
@@ -262,7 +129,8 @@ for i = 1:length(cam0.Files)
 
         % Add the first view to the view set.
         viewId = 1;
-        vSet = addView(vSet, viewId, rigidtform3d, points=matched);
+        %vSet = addView(vSet, viewId, rigidtform3d, points=matched);
+        vSet = addView(vSet,1,"Features",l_desc(matched(:),:),"Points",l_pos(matched(:),:));
     end
 
 
@@ -281,13 +149,14 @@ for i = 1:length(cam0.Files)
     % Compute distance
     for it = 1:length(dist)
         p  = [p;triangulate(l_pos(it).Location,r_pos(it).Location,P11,P22)];
-%         [p;triangulate(round(l_pos(it).Location),round(r_pos(it).Location),P11,P22)];
         dist(it) = norm(p(end,:));
-%         dist(it) = sqrt(sum(p(end).^2)); % remove commented lines
     end
-
     % Show left frame with matched features and their depths
-    figure;imshow(lf);
+    figure;
+    if i > 2
+        subplot(1,2,1);
+    end
+    imshow(lf);
     hold on
     x = l_pos.Location(:,1);
     y = l_pos.Location(:,2);
@@ -297,14 +166,21 @@ for i = 1:length(cam0.Files)
         text(x(j),y(j),label,"Color",'g');
     end
     hold off
-
-
-    features = struct( ...          
-        "pos", p ,...               % 3d locations
+    if i > 2
+        subplot(1,2,2);
+        z = p(:,3);
+        %idx = errors < 5 & z > 0 & z < 20;
+        pcshow(p(:, :),AxesVisibility="on",VerticalAxis="y",VerticalAxisDir="down",MarkerSize=30);
+        hold on
+        plotCamera(poses(vSet), Size=0.2);
+        hold off
+    end
+    features = struct(...
         "l_desc",l_desc, ...        % Feature descriptors in left image
         "r_desc",r_desc, ...        % -||- right image
-        "l_pos",l_pos,...           % DO WE NEED POS FOR RIGHT IMAGE?
-        "matched",matched...
+        "l_pos",l_pos,...
+        "r_pos",r_pos,...
+        "p",p...
         );
 
 
