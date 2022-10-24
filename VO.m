@@ -68,7 +68,7 @@ old_rot = eye(3, 3);
 pose = rigidtform3d(old_rot, old_translation);
 old_pose = []
 all_poses = []
-
+proj_old = eye(4,4);
 for i = 1:length(cam0.Files)
     lf = readimage(cam0, i);
     rf = readimage(cam1, i);
@@ -76,12 +76,17 @@ for i = 1:length(cam0.Files)
     f_l = detectSIFTFeatures(lf);
     f_r = detectSIFTFeatures(rf);
     best = 1000;
+    % I think that the intrinsics were in mm not in meters
+    intrinsics_l = cameraIntrinsics([fu1,fv1], [cu1 cv1], size(lf));
+    intrinsics_r = cameraIntrinsics([fu1,fv1], [cu1 cv1], size(rf));
     % Extract descriptors
-    [l_desc, l_pos] = extractFeatures(lf, f_l);
-    [r_desc, r_pos] = extractFeatures(rf, f_r);
+    lf_rect = undistortImage(lf,intrinsics_l);
+    rf_rect = undistortImage(rf,intrinsics_r);
+    [l_desc, l_pos] = extractFeatures(lf_rect, f_l);
+    [r_desc, r_pos] = extractFeatures(rf_rect, f_r);
 
     % If it's not the first itteration we want to match features
-    if ~isempty(features)
+     if ~isempty(features)
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                         MATCHING                           %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -97,20 +102,21 @@ for i = 1:length(cam0.Files)
         old_features = features;
         [features_in_current_space,remaining_old_features,remaining_features] = find_remaining_points(old_features,current_features);
         features = remaining_old_features;
-        % Then triangulate the new points
-        p = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
-        % Compute 3d coords
-        for itter = 1:size(features_in_current_space.l_pos.Location, 1)
-            p(itter, :) = triangulate(features_in_current_space.l_pos(itter).Location, features_in_current_space.r_pos(itter).Location, p1, p2);
-        end
-
-        % Only keep the last remaining points
-        p = p(remaining_features(:, 1), :);
         features_in_current_space.l_desc = features_in_current_space.l_desc(remaining_features(:, 1), :); % Intermediate descriptor
         features_in_current_space.r_desc = features_in_current_space.r_desc(remaining_features(:, 1), :); % Intermediate descriptor
         features_in_current_space.l_pos = features_in_current_space.l_pos(remaining_features(:, 1)); % Intermediate pos_l
         features_in_current_space.r_pos = features_in_current_space.r_pos(remaining_features(:, 1)); % Intermediate pos_r
+        % Then triangulate the new points
+        p = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
+        % Compute 3d coords
+        for itter = 1:size(features_in_current_space.l_pos.Location, 1)
+            features.pos(itter, :) = triangulate(remaining_old_features.l_pos(itter).Location,remaining_old_features.r_pos(itter).Location,p1,p2);
+            p(itter,:) = triangulate(features_in_current_space.l_pos(itter).Location,features_in_current_space.r_pos(itter).Location, p1, p2);
 
+        end
+
+        % Only keep the last remaining points
+    
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                           Odometry                          %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -129,14 +135,14 @@ for i = 1:length(cam0.Files)
         % and then transform it to the world coordinate system
 
         % Solve PnP and compute the old pose
-        relative_pose = PnP(features.pos, features_in_current_space.l_pos.Location,intrinsics,true);
-        %[R,T] = EPnP(features.pos', left_frame_possitions.Location');
-
-
-
+        [relative_pose ,proj] = PnP(features.pos, features_in_current_space.l_pos.Location,intrinsics,false);
+        est_pose= estworldpose(features_in_current_space.l_pos.Location,features.pos,intrinsics);
+        %relative_pose = struct('R', est_pose.R, 'T', est_pose.Translation,"Distance",norm(est_pose.Translation));
         % If we have a good pose this will work
-        pose = rigidtform3d(pose.A*rigidtform3d(relative_pose.R, relative_pose.T).A);
-
+        pose = rigidtform3d(pose.A*est_pose.A );
+        proj_old = proj_old*proj
+        [R,T] = decomposeProjectionMatrix(proj_old,intrinsics,false)
+        
         % This sollution is a bit more transparant and allows us to
         % understand what is going wrong
         % We might not need to rotate this. Not sure though
@@ -150,7 +156,8 @@ for i = 1:length(cam0.Files)
             "Distance", relative_pose.Distance ...
             );
         all_poses = [all_poses
-                old_pose.T
+                pose.Translation
+                % old_pose.T
                 ];
 
         clc;
@@ -162,21 +169,22 @@ for i = 1:length(cam0.Files)
         disp(old_pose.R)
         disp("Current rotation in relation to the 3d points")
         disp(relative_pose.R)
-        
+        fprintf("Estimated distance according to rtf %.2d",norm(est_pose.T))
         disp("Pose according to rigidtforms")
         disp(pose.Translation);
         disp("Rotation according to rigidtforms")
         disp(pose.R);
+
         
         figure(2);
         % Plot the X Z plane, the Y plane should be static
-        plot(all_poses(:, 1), all_poses(:, 2));
+        %plot3(all_poses);
         hold on
-        scatter(all_poses(:, 1), all_poses(:, 2));
+        %scatter3(all_poses);
         hold off
         
         figure(1);
-        imshow(lf);
+        imshow(lf_rect);
         figure(1);
 
         % Draw on the cars view
@@ -185,15 +193,19 @@ for i = 1:length(cam0.Files)
         y = features_in_current_space.l_pos.Location(:,2);
         ox = features.l_pos.Location(:,1);
         oy = features.l_pos.Location(:,2);
-        for i = 1:size(ox,1)
+        for i = 1:4:size(ox,1)
             plot([ox(i),x(i)],[oy(i),y(i)]);
+            lable = sprintf("%.1f[m]", norm(p(i)));
+            text(x(i),y(i),lable,"Color",'g');
+            lable = sprintf("%.1f[m]", norm(features.pos(i)));
+            text(ox(i),oy(i),lable,"Color",'r');
         end
         hold off
     
 
 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        %     I still thik we need this part for improved stability   %
+        %    I still think we need this part for improved stability   %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Find points that exist in both the old and the new right and left
         % images
@@ -239,14 +251,10 @@ for i = 1:length(cam0.Files)
     % Triangulate the 3D points
     for itter = 1:length(dist)
         p = [p; triangulate(l_pos(itter).Location, r_pos(itter).Location, p1, p2)];
-        %dist(itter) = sqrt(sum(p(end).^2));
+        dist(itter) = sqrt(sum(p(end).^2));
     end
 
-
-    %for j = 1:length(dist)
-    %    lable = sprintf("%f [m]", norm(dist(j)));
-    %    %text(x(j),y(j),lable,"Color",'g');
-    %end
+    
 
 
     % Store the features untill the next itteration
@@ -255,11 +263,36 @@ for i = 1:length(cam0.Files)
         "l_desc", l_desc, ... % Feature descriptors in left image
         "r_desc", r_desc, ... % -||- right image
         "l_pos", l_pos, ...
+        "r_pos",r_pos,...
         "matched", matched ...
     );
 
 end
-
+function [R, T] = decomposeProjectionMatrix(P, K,use_k)
+            if use_k
+                M = K.K\P(1:3,1:3);
+        
+                % The first 3 columns of M are the rotation matrix
+                R = M(:, 1:3);
+                % The last column of M is the translation matrix
+                T = linsolve(K.K,P(1:3,4))
+            else
+                R = P(1:3,1:3);
+                T = P(1:3,4);
+            end
+            if det(R) < 0
+                R = -R;
+                %T = -T;
+            end
+            %if det(R) ~= 1
+            %    R = R./((det(R)).^(1/3));
+            %end
+            if R*R' ~= eye(3,3)
+                [U, ~, V] = svd(R); 
+                R = U * V';
+            end
+            disp(R)
+        end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                         FUNCTIONS                          %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -275,6 +308,7 @@ function [current_features,old_features,last_match] = find_remaining_points( old
 
     old_features.l_desc = old_features.l_desc(feed_formward_left_frame_matches(:, 2), :);
     old_features.l_pos = old_features.l_pos(feed_formward_left_frame_matches(:, 2), :);
+    old_features.r_pos = old_features.r_pos(feed_formward_left_frame_matches(:, 2), :);
     old_features.r_desc = old_features.r_desc(feed_formward_left_frame_matches(:, 2), :);
 
     % Match the descriptors over time in the right image
@@ -284,6 +318,7 @@ function [current_features,old_features,last_match] = find_remaining_points( old
     %old_points = p(rm(:, 2));
     old_features.l_desc = old_features.l_desc(feed_formward_right_frame_matches(:, 2), :);
     old_features.l_pos = old_features.l_pos(feed_formward_right_frame_matches(:, 2), :);
+    old_features.r_pos = old_features.r_pos(feed_formward_right_frame_matches(:, 2), :);
     old_features.r_desc = old_features.r_desc(feed_formward_right_frame_matches(:, 2), :);
 
     current_features.l_desc = current_features.l_desc(feed_formward_left_frame_matches(:, 1), :);
@@ -307,5 +342,6 @@ function [current_features,old_features,last_match] = find_remaining_points( old
     old_features.pos = old_features.pos(last_match(:, 2), :);
     old_features.l_desc = old_features.l_desc(last_match(:, 2), :);
     old_features.l_pos = old_features.l_pos(last_match(:, 2), :);
+    old_features.r_pos = old_features.r_pos(last_match(:, 2), :);
 
 end

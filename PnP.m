@@ -1,10 +1,10 @@
-function Pose = PnP(Points_3D, Points_2D,K,use_k)
+function [Pose,P] = PnP(Points_3D, Points_2D,K,use_k)
     % PnP - Perspective from N Points solution
     % Returns the pose of the camera relative to the world frame
     % if the camera is the world frame, the poses translation will be zeros
     A = [];
     % Fill in the A matrix
-    for index = 1:10:size(Points_3D, 1)
+    for index = 1:size(Points_3D, 1)
 
         % Create some variable names to make it readable
         X = Points_3D(index, 1);
@@ -18,8 +18,8 @@ function Pose = PnP(Points_3D, Points_2D,K,use_k)
         A = [A
             0     0    0    0   -X   -Y   -Z   -W    X*y   Y*y   Z*y   W*y
             X     Y    Z    W    0    0    0    0   -X*x  -Y*x  -Z*x  -W*x
-            %-X*y -Y*y -Z*y -W*y  X*x  Y*x  Z*x  W*x  0     0     0     0 
-            0   0   0   0    0    0    0    0   0    0    0    0
+            -X*y -Y*y -Z*y -W*y  X*x  Y*x  Z*x  W*x  0     0     0     0 
+            %0   0   0   0    0    0    0    0   0    0    0    0
         ];
     end
     % Single value decomposition of A to solve for the projection matrix
@@ -33,6 +33,7 @@ function Pose = PnP(Points_3D, Points_2D,K,use_k)
     [R,T] = decomposeProjectionMatrix(P,K,use_k);
     
     Pose = struct('R', R, 'T', T',"Distance",norm(T));
+    P = [R T;0 0 0 1];
     
     function [R, T] = decomposeProjectionMatrix(P, K,use_k)
         if use_k
