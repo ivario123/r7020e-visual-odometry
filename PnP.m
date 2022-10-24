@@ -1,4 +1,37 @@
 function [Pose,P] = PnP(Points_3D, Points_2D,K,use_k)
+
+    A = zeros(3*size(Points_3D,1),12);
+
+    for i = 1:size(Points_3D,1)
+
+        A(3*i-2,:) = [Points_3D(i,1) Points_3D(i,2) Points_3D(i,3) 1 0 0 0 0 -Points_2D(i,1)*Points_3D(i,1) -Points_2D(i,1)*Points_3D(i,2) -Points_2D(i,1)*Points_3D(i,3) -Points_2D(i,1)];
+
+        A(3*i-1,:) = [0 0 0 0 Points_3D(i,1) Points_3D(i,2) Points_3D(i,3) 1 -Points_2D(i,2)*Points_3D(i,1) -Points_2D(i,2)*Points_3D(i,2) -Points_2D(i,2)*Points_3D(i,3) -Points_2D(i,2)];
+
+        A(3*i,:) = [Points_3D(i,1) Points_3D(i,2) Points_3D(i,3) 1 0 0 0 0 -Points_2D(i,1)*Points_3D(i,1) -Points_2D(i,1)*Points_3D(i,2) -Points_2D(i,1)*Points_3D(i,3) -Points_2D(i,1)];
+
+    end
+
+    [U,S,V] = svd(A);
+
+    P = V(:,end);
+
+    P = reshape(P,4,3)';
+    P = (P ./ P(3, 4))./1000;
+    R = P(:,1:3);
+
+    T = P(:,4);
+
+    Pose = struct('R',R,'T',T','Distance',norm(T));
+    P = [P;0 0 0 1];
+    return
+
+
+
+
+
+
+
     % PnP - Perspective from N Points solution
     % Returns the pose of the camera relative to the world frame
     % if the camera is the world frame, the poses translation will be zeros
@@ -58,6 +91,5 @@ function [Pose,P] = PnP(Points_3D, Points_2D,K,use_k)
             [U, ~, V] = svd(R); 
             R = U * V';
         end
-        disp(R)
     end
 end
