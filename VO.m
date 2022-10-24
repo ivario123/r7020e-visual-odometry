@@ -72,8 +72,6 @@ all_poses = []
 for i = 1:length(cam0.Files)
     lf = readimage(cam0, i);
     rf = readimage(cam1, i);
-    figure(1);
-    imshow(lf);
     % Get the features
     f_l = detectSIFTFeatures(lf);
     f_r = detectSIFTFeatures(rf);
@@ -94,7 +92,7 @@ for i = 1:length(cam0.Files)
         p = zeros([size(left_frame_possitions, 1), 3]);
         % Compute 3d coords
         for itter = 1:size(left_frame_possitions, 1)
-            p(itter, :) = triangulate(round(left_frame_possitions(itter).Location), round(right_frame_possitions(itter).Location), p1, p2);
+            p(itter, :) = triangulate(left_frame_possitions(itter).Location, right_frame_possitions(itter).Location, p1, p2);
         end
 
         % Only keep the last remaining points
@@ -107,8 +105,8 @@ for i = 1:length(cam0.Files)
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                           Odometry                          %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-        intrinsics = cameraIntrinsics([fu1,fv1], [cu1 cv1], size(lf));
+        % I think that the intrinsics were in mm not in meters
+        intrinsics = cameraIntrinsics([fu1,fv1], [cu1/1000 cv1/1000], size(lf));
 
         % Find the transformation between the two frames
 
@@ -122,28 +120,68 @@ for i = 1:length(cam0.Files)
         % and then transform it to the world coordinate system
 
         % Solve PnP and compute the old pose
-        relative_pose = PnP(features.pos, left_frame_possitions.Location,intrinsics);
+        relative_pose = PnP(features.pos, left_frame_possitions.Location,intrinsics,false);
+
+
+
 
         % If we have a good pose this will work
-        % pose = rigidtform3d(pose.A*rigidtform3d(relative_pose.R, relative_pose.T).A);
+        pose = rigidtform3d(pose.A*rigidtform3d(relative_pose.R, relative_pose.T).A);
 
         % This sollution is a bit more transparant and allows us to
         % understand what is going wrong
         % We might not need to rotate this. Not sure though
-        old_pose = struct("T", relative_pose.T*relative_pose.R  + old_pose.T, "R", relative_pose.R * old_pose.R, "Distance", relative_pose.Distance);
+        % This should express the pose translation "flat" against the old
+        % poses rotation. Poor explination.
+        new_pose_t = old_pose.R*relative_pose.T';
+
+        old_pose = struct( ...
+            "T", new_pose_t'+old_pose.T,...%(new_pose_t_in_world_plane+old_pose.R'*old_pose.T')', ...
+            "R",  relative_pose.R*old_pose.R, ...
+            "Distance", relative_pose.Distance ...
+            );
         all_poses = [all_poses
-                old_pose.T
+                pose.Translation
                 ];
 
+        clc;
         fprintf("Distance traveled in that frame %.2f[m] \n", old_pose.Distance);
         fprintf("Velocity in that frame %.2f[km/h]\n", 3.6 * old_pose.Distance / (frame_times(i) - frame_times(i - 1)));
         disp("Current translation in world coords starting at first frame")
         disp(old_pose.T)
         disp("Current rotation in relation to the first frame")
         disp(old_pose.R)
+        disp("Current rotation in relation to the 3d points")
+        disp(relative_pose.R)
+        
+        disp("Pose according to rigidtforms")
+        disp(pose.Translation);
+        disp("Rotation according to rigidtforms")
+        disp(pose.R);
+        
         figure(2);
         % Plot the X Z plane, the Y plane should be static
+        plot(all_poses(:, 1), all_poses(:, 2));
+        hold on
         scatter(all_poses(:, 1), all_poses(:, 2));
+        hold off
+        
+        figure(1);
+        imshow(lf);
+        figure(1);
+
+        % Draw on the cars view
+        hold on
+        x = left_frame_possitions.Location(:,1);
+        y = left_frame_possitions.Location(:,2);
+        ox = features.l_pos.Location(:,1);
+        oy = features.l_pos.Location(:,2);
+        for i = 1:size(ox,1)
+            plot([ox(i),x(i)],[oy(i),y(i)]);
+        end
+        hold off
+    
+
 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %     I still thik we need this part for improved stability   %
@@ -170,6 +208,10 @@ for i = 1:length(cam0.Files)
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %                Basic boiler plate for the problem           %
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+
+
+
     % Match the descriptors
     matched = matchFeatures(l_desc, r_desc);
 
@@ -187,7 +229,7 @@ for i = 1:length(cam0.Files)
     p = [];
     % Triangulate the 3D points
     for itter = 1:length(dist)
-        p = [p; triangulate(round(l_pos(itter).Location), round(r_pos(itter).Location), p1, p2)];
+        p = [p; triangulate(l_pos(itter).Location, r_pos(itter).Location, p1, p2)];
         %dist(itter) = sqrt(sum(p(end).^2));
     end
 
@@ -200,7 +242,7 @@ for i = 1:length(cam0.Files)
 
     % Store the features untill the next itteration
     features = struct( ...
-    "pos", p, ... % 3d locations
+        "pos", p, ...         % 3d locations
         "l_desc", l_desc, ... % Feature descriptors in left image
         "r_desc", r_desc, ... % -||- right image
         "l_pos", l_pos, ...
@@ -221,7 +263,7 @@ function [features, left_frame_descriptors, left_frame_possitions, right_frame_d
     features = old_features;
 
     % Match the descriptors over time in the left image
-    feed_formward_left_frame_matches = matchFeatures(left_frame_descriptors, features.l_desc); % Left intra frame match
+    feed_formward_left_frame_matches = matchFeatures(left_frame_descriptors, features.l_desc);
     %p = p(lm(:, 2));
 
     features.l_desc = features.l_desc(feed_formward_left_frame_matches(:, 2), :);
@@ -229,7 +271,7 @@ function [features, left_frame_descriptors, left_frame_possitions, right_frame_d
     features.r_desc = features.r_desc(feed_formward_left_frame_matches(:, 2), :);
 
     % Match the descriptors over time in the right image
-    feed_formward_right_frame_matches = matchFeatures(right_frame_descriptors, features.r_desc); % Right intra frame match
+    feed_formward_right_frame_matches = matchFeatures(right_frame_descriptors, features.r_desc);
 
     % Now we have the old points
     %old_points = p(rm(:, 2));
