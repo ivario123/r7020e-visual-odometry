@@ -36,12 +36,12 @@ function Pose = PnP(Points_3D, Points_2D,K,use_k)
     
     function [R, T] = decomposeProjectionMatrix(P, K,use_k)
         if use_k
-            M = K.K\P;
+            M = K.K\P(:,1:3);
     
             % The first 3 columns of M are the rotation matrix
             R = M(:, 1:3);
             % The last column of M is the translation matrix
-            T = M(:, 4);
+            T = linsolve(K.K,P(:,4))
         else
             R = P(:,1:3);
             T = P(:,4);
@@ -60,19 +60,3 @@ function Pose = PnP(Points_3D, Points_2D,K,use_k)
         disp(R)
     end
 end
-
-%         % Decompose the projection matrix into a rotation matrix and a
-%         % translation vector.
-%         T = P(:, 4);
-%         R = P(:, 1:3);
-%         % Ensure that R is not a reflection
-%         if det(R) < 0
-%             R = -R;
-%         end
-%         % Singular value decomposition to ensure that R is a rotation matrix
-%         [U, ~, V] = svd(R);
-%         R = U * V';
-%         if det(R) < 0
-%             R = -R;
-%         end
-%     end

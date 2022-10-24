@@ -86,27 +86,36 @@ for i = 1:length(cam0.Files)
         %                         MATCHING                           %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % First find the features that remain
-        [remaining_features, remaining_left_frame_descriptors, left_frame_possitions, right_frame_descriptors, right_frame_possitions, last_match] = find_remaining_points(features, l_desc, l_pos, r_desc, r_pos);
-        features = remaining_features;
+        
+
+        current_features = struct( ...
+            "l_desc",l_desc,...
+            "l_pos",l_pos,...
+            "r_desc",r_desc,...
+            "r_pos",r_pos...
+            );
+        old_features = features;
+        [features_in_current_space,remaining_old_features,remaining_features] = find_remaining_points(old_features,current_features);
+        features = remaining_old_features;
         % Then triangulate the new points
-        p = zeros([size(left_frame_possitions, 1), 3]);
+        p = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
         % Compute 3d coords
-        for itter = 1:size(left_frame_possitions, 1)
-            p(itter, :) = triangulate(left_frame_possitions(itter).Location, right_frame_possitions(itter).Location, p1, p2);
+        for itter = 1:size(features_in_current_space.l_pos.Location, 1)
+            p(itter, :) = triangulate(features_in_current_space.l_pos(itter).Location, features_in_current_space.r_pos(itter).Location, p1, p2);
         end
 
         % Only keep the last remaining points
-        p = p(last_match(:, 1), :);
-        remaining_left_frame_descriptors = remaining_left_frame_descriptors(last_match(:, 1), :); % Intermediate descriptor
-        right_frame_descriptors = right_frame_descriptors(last_match(:, 1), :); % Intermediate descriptor
-        left_frame_possitions = left_frame_possitions(last_match(:, 1)); % Intermediate pos_l
-        right_frame_possitions = right_frame_possitions(last_match(:, 1)); % Intermediate pos_r
+        p = p(remaining_features(:, 1), :);
+        features_in_current_space.l_desc = features_in_current_space.l_desc(remaining_features(:, 1), :); % Intermediate descriptor
+        features_in_current_space.r_desc = features_in_current_space.r_desc(remaining_features(:, 1), :); % Intermediate descriptor
+        features_in_current_space.l_pos = features_in_current_space.l_pos(remaining_features(:, 1)); % Intermediate pos_l
+        features_in_current_space.r_pos = features_in_current_space.r_pos(remaining_features(:, 1)); % Intermediate pos_r
 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                           Odometry                          %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % I think that the intrinsics were in mm not in meters
-        intrinsics = cameraIntrinsics([fu1,fv1], [cu1/1000 cv1/1000], size(lf));
+        intrinsics = cameraIntrinsics([fu1,fv1], [cu1 cv1], size(lf));
 
         % Find the transformation between the two frames
 
@@ -120,8 +129,8 @@ for i = 1:length(cam0.Files)
         % and then transform it to the world coordinate system
 
         % Solve PnP and compute the old pose
-        relative_pose = PnP(features.pos, left_frame_possitions.Location,intrinsics,false);
-
+        relative_pose = PnP(features.pos, features_in_current_space.l_pos.Location,intrinsics,true);
+        %[R,T] = EPnP(features.pos', left_frame_possitions.Location');
 
 
 
@@ -141,7 +150,7 @@ for i = 1:length(cam0.Files)
             "Distance", relative_pose.Distance ...
             );
         all_poses = [all_poses
-                pose.Translation
+                old_pose.T
                 ];
 
         clc;
@@ -172,8 +181,8 @@ for i = 1:length(cam0.Files)
 
         % Draw on the cars view
         hold on
-        x = left_frame_possitions.Location(:,1);
-        y = left_frame_possitions.Location(:,2);
+        x = features_in_current_space.l_pos.Location(:,1);
+        y = features_in_current_space.l_pos.Location(:,2);
         ox = features.l_pos.Location(:,1);
         oy = features.l_pos.Location(:,2);
         for i = 1:size(ox,1)
@@ -256,49 +265,47 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Helper functions to remove clutter from the main function
 
-function [features, left_frame_descriptors, left_frame_possitions, right_frame_descriptors, right_frame_possitions, last_match] = find_remaining_points( ...
-    old_features, left_frame_descriptors, left_frame_possitions, right_frame_descriptors, right_frame_possitions)
+function [current_features,old_features,last_match] = find_remaining_points( old_features, current_features)
 
-    % Rename variables for easier reading
-    features = old_features;
+    
 
     % Match the descriptors over time in the left image
-    feed_formward_left_frame_matches = matchFeatures(left_frame_descriptors, features.l_desc);
+    feed_formward_left_frame_matches = matchFeatures(current_features.l_desc, old_features.l_desc);
     %p = p(lm(:, 2));
 
-    features.l_desc = features.l_desc(feed_formward_left_frame_matches(:, 2), :);
-    features.l_pos = features.l_pos(feed_formward_left_frame_matches(:, 2), :);
-    features.r_desc = features.r_desc(feed_formward_left_frame_matches(:, 2), :);
+    old_features.l_desc = old_features.l_desc(feed_formward_left_frame_matches(:, 2), :);
+    old_features.l_pos = old_features.l_pos(feed_formward_left_frame_matches(:, 2), :);
+    old_features.r_desc = old_features.r_desc(feed_formward_left_frame_matches(:, 2), :);
 
     % Match the descriptors over time in the right image
-    feed_formward_right_frame_matches = matchFeatures(right_frame_descriptors, features.r_desc);
+    feed_formward_right_frame_matches = matchFeatures(current_features.r_desc, old_features.r_desc);
 
     % Now we have the old points
     %old_points = p(rm(:, 2));
-    features.l_desc = features.l_desc(feed_formward_right_frame_matches(:, 2), :);
-    features.l_pos = features.l_pos(feed_formward_right_frame_matches(:, 2), :);
-    features.r_desc = features.r_desc(feed_formward_right_frame_matches(:, 2), :);
+    old_features.l_desc = old_features.l_desc(feed_formward_right_frame_matches(:, 2), :);
+    old_features.l_pos = old_features.l_pos(feed_formward_right_frame_matches(:, 2), :);
+    old_features.r_desc = old_features.r_desc(feed_formward_right_frame_matches(:, 2), :);
 
-    left_frame_descriptors = left_frame_descriptors(feed_formward_left_frame_matches(:, 1), :);
-    left_frame_possitions = left_frame_possitions(feed_formward_left_frame_matches(:, 1));
+    current_features.l_desc = current_features.l_desc(feed_formward_left_frame_matches(:, 1), :);
+    current_features.l_pos =  current_features.l_pos (feed_formward_left_frame_matches(:, 1));
 
-    right_frame_descriptors = right_frame_descriptors(feed_formward_right_frame_matches(:, 1), :);
-    right_frame_possitions = right_frame_possitions(feed_formward_right_frame_matches(:, 1));
+    current_features.r_desc = current_features.r_desc(feed_formward_right_frame_matches(:, 1), :);
+    current_features.r_pos = current_features.r_pos(feed_formward_right_frame_matches(:, 1));
 
     % Match the descriptors between the left and right image
-    current_frame_matches = matchFeatures(left_frame_descriptors, right_frame_descriptors);
+    current_frame_matches = matchFeatures(current_features.l_desc, current_features.r_desc);
 
     % Get new valid points
-    left_frame_descriptors = left_frame_descriptors(current_frame_matches(:, 1), :);
-    right_frame_descriptors = right_frame_descriptors(current_frame_matches(:, 2), :);
-    left_frame_possitions = left_frame_possitions(current_frame_matches(:, 1));
-    right_frame_possitions = right_frame_possitions(current_frame_matches(:, 2));
+    current_features.l_desc = current_features.l_desc(current_frame_matches(:, 1), :);
+    current_features.r_desc = current_features.r_desc(current_frame_matches(:, 2), :);
+    current_features.l_pos = current_features.l_pos(current_frame_matches(:, 1));
+    current_features.r_pos = current_features.r_pos(current_frame_matches(:, 2));
 
     % Now that we know what features still exist between the two cameras we
     % can remove the ones that are out of view from atleast one of the images
-    last_match = matchFeatures(left_frame_descriptors, features.l_desc);
-    features.pos = features.pos(last_match(:, 2), :);
-    features.l_desc = features.l_desc(last_match(:, 2), :);
-    features.l_pos = features.l_pos(last_match(:, 2), :);
+    last_match = matchFeatures(current_features.l_desc, old_features.l_desc);
+    old_features.pos = old_features.pos(last_match(:, 2), :);
+    old_features.l_desc = old_features.l_desc(last_match(:, 2), :);
+    old_features.l_pos = old_features.l_pos(last_match(:, 2), :);
 
 end
