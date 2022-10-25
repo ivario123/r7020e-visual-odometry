@@ -1,6 +1,6 @@
 ./kitti/*
 kitti/*
 .kitti*/
-*.png
 *.jpg
 *.jpeg
+*.asv
