@@ -27,7 +27,7 @@ Remove all features from $leftFreame_{i-1}$ and $rightFrame_{i-1}$ that are not 
 
 Now we can triangulate the $[x,y,z]$ coordinates in both of the coordinate frames, this is done using the [triangulate function](https://se.mathworks.com/help/vision/ref/triangulate.html?s_tid=doc_ta) in Matlab. 
 ### Pose estimation
-The pose estimation is done using the [P3P algorithm](https://en.wikipedia.org/wiki/Perspective-n-Point) implemented in Matlab. Which returns the pose $P$ estimated in the previous time steps coordinate frame. To translate this to the world coordinate frame we need calculate $P_{world} = P_{i-1}*P_{i}$. This yields the pose of the camera in the world coordinate frame.
+The pose estimation is done using the [P3P algorithm](https://en.wikipedia.org/wiki/Perspective-n-Point) implemented in Matlab. Which returns the pose $P$ estimated in the previous time steps coordinate frame. To translate this to the world coordinate frame we need calculate $P_{world} = P_{i-1}P_{i}$. This yields the pose of the camera in the world coordinate frame.
 
 ### Landmark insertion
 The landmarks are triangulated from feature matches between the left and right frames. The landmarks are inserted into the world coordinate frame. The landmarks are inserted into the world coordinate frame by calculating the pose of the camera in the world coordinate frame and then transforming the landmarks from the camera coordinate frame to the world coordinate frame.
