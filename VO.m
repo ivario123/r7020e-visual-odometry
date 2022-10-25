@@ -228,9 +228,7 @@ for i = 1:n_frames
         "l_pos", l_pos, ...   % xy-position of descriptors in left image
         "r_pos", r_pos ...    %       -      ||      -        right image
     );
-
     clearvars('-except', keepvars{:});
-
 end
 
 % Show the final result

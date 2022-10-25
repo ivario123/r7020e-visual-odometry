@@ -39,11 +39,16 @@ The visualisation is done in multiple steps,
 - 2d mapping of the path of the camera in the left frame and the ground truth path.
 - mapping of the 2d pose error of the camera in the left frame and the ground truth pose.
 - mapping of the 3d pose of the camera and the landmarks in the world coordinate frame.
-
+## Results
+![3d_map](4500/3d_map.png)
+![error](4500/error.png)
+![map](4500/map.png)
+![view](4500/view.png)
 ## Improvements
 
 1. We could look at previous poses and use them to predict the next pose and use this to improve the pose estimation.
 2. We could use the right camera and do the same process there and then transform that pose relative to the left camera to the world coordinate frame and use this to improve the pose estimation.
+
 
 ## References
 - [SIFT](https://en.wikipedia.org/wiki/Scale-invariant_feature_transform)
