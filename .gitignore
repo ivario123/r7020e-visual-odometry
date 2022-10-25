@@ -3,3 +3,4 @@ kitti/*
 .kitti*/
 *.jpg
 *.jpeg
+*.asv
