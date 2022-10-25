@@ -4,3 +4,4 @@ kitti/*
 *.jpg
 *.jpeg
 *.asv
+*.mat
