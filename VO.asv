@@ -1,3 +1,4 @@
+close all
 clear
 clc
 close all
@@ -39,6 +40,8 @@ cu2 = p2(1, 3);
 cv2 = p2(2, 3);
 bx2 = -p2(1, 4) / fu2;
 
+
+T = bx2 - bx1; % baseline
 f = mean([fu1 fu2 fv1 fv2]);
 intrinsics_l = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam0, 1)));
 intrinsics_r = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam1, 1)));
@@ -225,6 +228,7 @@ plot(frame_times(1:i), error)
 % Save the poses
 save("poses.mat", "all_poses");
 
+
 % Save the error
 save("error.mat", "error");
 
@@ -304,3 +308,4 @@ function [current_features, old_features, lm, rm] = find_remaining_points(old_fe
     current_features.l_pos = current_features.l_pos(last_match(:, 1), :);
     current_features.r_pos = current_features.r_pos(last_match(:, 1), :);
 end
+

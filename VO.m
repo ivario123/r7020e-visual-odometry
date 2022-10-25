@@ -1,3 +1,4 @@
+close all
 clear
 clc
 close all
@@ -43,7 +44,10 @@ cu2 = p2(1, 3);
 cv2 = p2(2, 3);
 bx2 = -p2(1, 4) / fu2;
 
+
+T = bx2 - bx1; % baseline
 f = mean([fu1 fu2 fv1 fv2]);
+
 intrinsics_l = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam0, 1)));
 intrinsics_r = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam1, 1)));
 
