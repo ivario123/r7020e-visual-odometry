@@ -1,6 +1,10 @@
 clear
 clc
 close all
+% Toggle, set this to false if you don't want the 3d view
+view_3d = false;
+
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                   Load the relevant files                   %
@@ -40,42 +44,46 @@ cv2 = p2(2, 3);
 bx2 = -p2(1, 4) / fu2;
 
 f = mean([fu1 fu2 fv1 fv2]);
-intrinsics = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam0, 1)));
+intrinsics_l = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam0, 1)));
+intrinsics_r = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam1, 1)));
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                   Prepare some state data                   %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 features = [];
 pose = rigidtform3d(eye(3, 3), zeros(1, 3));
-all_poses = zeros(length(cam0.Files), 3);
+all_poses = []; %zeros(length(cam0.Files), 3);
+n_frames = length(cam0.Files);
+landmarks = [];
 
-for i = 1:length(cam0.Files)
+for i = 1:n_frames
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %               Load images and detect features               %
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     lf = readimage(cam0, i);
     rf = readimage(cam1, i);
-    % Get the features
-    f_l = detectSIFTFeatures(lf);
-    f_r = detectSIFTFeatures(rf);
-    best = 1000;
-    % I think that the intrinsics were in mm not in meters
-    intrinsics_l = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(lf));
-    intrinsics_r = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(rf));
-    % Extract descriptors
+
+    % Correct the images
     lf_rect = undistortImage(lf, intrinsics_l);
     rf_rect = undistortImage(rf, intrinsics_r);
-    [l_desc, l_pos] = extractFeatures(lf_rect, f_l);
-    [r_desc, r_pos] = extractFeatures(rf_rect, f_r);
+
+    % Get the features
+    f_l = detectSIFTFeatures(lf_rect);
+    f_r = detectSIFTFeatures(rf_rect);
+
+    % Extract descriptors
+    [l_desc, l_pos] = extractFeatures(lf_rect, f_l, "Method", "SIFT");
+    [r_desc, r_pos] = extractFeatures(rf_rect, f_r, "Method", "SIFT");
+
+    % Match the descriptors
+    matched = matchFeatures(l_desc, r_desc);
 
     % If it's not the first itteration we want to match features
     if ~isempty(features)
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                      Match the features                     %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Prepare for last step
-        inter_frame = matchFeatures(l_desc, r_desc);
 
         % Package the data together neatly
         current_features = struct( ...
@@ -92,13 +100,13 @@ for i = 1:length(cam0.Files)
 
         % Triangulate 3d coords in both the old and the new coordinate
         % frame
-        p = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
+        features_in_current_space.pos = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
         remaining_old_features.pos = zeros( ...
             [size(features_in_current_space.l_pos.Location, 1), 3]);
 
         for itter = 1:size(features_in_current_space.l_pos.Location, 1)
             remaining_old_features.pos(itter, :) = triangulate(remaining_old_features.l_pos(itter).Location, remaining_old_features.r_pos(itter).Location, p1, p2);
-            p(itter, :) = triangulate(features_in_current_space.l_pos(itter).Location, features_in_current_space.r_pos(itter).Location, p1, p2);
+            features_in_current_space.pos(itter, :) = triangulate(features_in_current_space.l_pos(itter).Location, features_in_current_space.r_pos(itter).Location, p1, p2);
 
         end
 
@@ -110,59 +118,101 @@ for i = 1:length(cam0.Files)
         est_pose = estworldpose( ...
         double(features_in_current_space.l_pos.Location), ...
             double(remaining_old_features.pos), ...
-            intrinsics ...
+            intrinsics_l ...
         );
 
         % Convert coord system to the world coord system
         pose = rigidtform3d(pose.A * est_pose.A);
 
         % Append the pose to the world poses
-        all_poses(i, :) = pose.Translation;
+        all_poses = [all_poses
+                pose];
 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                      Add new landmarks                      %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        for index = 1:length(inter_frame)
-
-            if isempty(find(lm(:, 1) == inter_frame(index, 1), 1)) && isempty(find(rm(:, 2) == inter_frame(index, 2), 1))
-                lm = [lm; inter_frame(index, 1), 0];
-                rm = [rm; inter_frame(index, 2), 0];
+        
+        % If result is strange, limit the number of points kept with ptk
+        l_pos = l_pos(matched(:, 1));
+        r_pos = r_pos(matched(:, 2));
+        l_desc = l_desc(matched(:, 1), :);
+        r_desc = r_desc(matched(:, 2), :);
+        if view_3d
+            % Find the landmarks that did not exist in the previous frame
+            indecies = [];
+            for index = 1:size(l_pos.Location, 1)
+                % This is terribly slow, but it works
+                if isempty(find(remaining_old_features.l_pos.Location == l_pos.Location(index, :))) ...
+                        && isempty(find(remaining_old_features.r_pos.Location == r_pos.Location(index, :)))
+                    indecies = [indecies, index];
+                end
+    
             end
+    
+            % Now get the locations of the new landmarks in the left and right images
+            new_landmarks_l = l_pos.Location(indecies, :);
+            new_landmarks_r = r_pos.Location(indecies, :);
+            % Add the new landmarks to the landmarks array
+            landmarks = CreateLandmarksFromFeatures(new_landmarks_l, new_landmarks_r, p1, p2, pose, landmarks);
+        end
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %                        Visualization                        %
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+        % Only log things to the screen every nth frame
+        if mod(i, 200) == 0
+            % Now we can display results
+            pretty_print(pose, est_pose, frame_times, i, n_frames, true);
+            mkdir img
+            mkdir(sprintf("./img/%d",i));
+            % Display the current frame
+            figure(1);
+            ShowFeaturesOnFeed(features_in_current_space, remaining_old_features, l_pos, lf);
+            saveas(gcf,sprintf('./img/%d/view.png',i));
+            % Show the poses
+            figure(2);
+            error = PlotOnMap(all_poses, i);
+            saveas(gcf,sprintf('./img/%d/map.png',i));
+
+            % Plot error over time
+            figure(3);
+            title('Error in x,z plane over time')
+            xlabel('Time[s]')
+            ylabel('Error[m]')
+            plot(frame_times(1:i), error);
+            saveas(gcf,sprintf('./img/%d/error.png',i));
+
+            if view_3d
+                % Plot the landmarksx
+                figure(4);
+                title('Error in x,z plane over time')
+                xlabel('X coord[m]')
+                ylabel('Y coord[m]')
+                zlabel('Z coord[m]')
+                ShowPoseAndLandmarks(all_poses, landmarks, i - 1);
+                saveas(gcf,sprintf('./img/%d/3d_map.png',i))
+            end
+            close all
+        else
+            % Only show the frame number every frame
+            pretty_print(pose, est_pose, frame_times, i, n_frames, false);
         end
 
-        % possibly add features
-        l_desc = l_desc(lm(:, 1), :);
-        l_pos = l_pos(lm(:, 1));
-        r_desc = r_desc(rm(:, 1), :);
-        r_pos = r_pos(rm(:, 1));
+    else
 
-        % Now we can display results
-        pretty_print(pose, est_pose, frame_times, i);
-
-        % Show the poses
-        figure(2);
-        plot(all_poses(1:i, 1), all_poses(1:i, 3));
-
-        % Display the current frame
-        figure(1);
-        imshow(lf_rect);
+        % If result is strange, limit the number of points kept with ptk
+        l_pos = l_pos(matched(:, 1));
+        r_pos = r_pos(matched(:, 2));
+        l_desc = l_desc(matched(:, 1), :);
+        r_desc = r_desc(matched(:, 2), :);
     end
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Keep the features that exist in both the left and right view%
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    % Match the descriptors
-    matched = matchFeatures(l_desc, r_desc);
-
+    %best = 1000;
     %ptk = min([best, length(matched)]);
-
-    % If result is strange, limit the number of points kept with ptk
-    l_pos = l_pos(matched(:, 1));
-    r_pos = r_pos(matched(:, 2));
-    l_desc = l_desc(matched(:, 1), :);
-    r_desc = r_desc(matched(:, 2), :);
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %       Store the features detected until next itteration     %
@@ -173,26 +223,50 @@ for i = 1:length(cam0.Files)
     "l_desc", l_desc, ... % Feature descriptors in left image
         "r_desc", r_desc, ... % -||- right image
         "l_pos", l_pos, ...
-        "r_pos", r_pos, ...
-        "matched", matched ...
+        "r_pos", r_pos ...
     );
 
 end
 
-function pretty_print(pose, est_pose, frame_times, i)
+% Show the final result
+figure(1);
+ShowFeaturesOnFeed(features_in_current_space, remaining_old_features, l_pos, lf);
+
+% Show the poses
+figure(2);
+error = PlotOnMap(all_poses, i);
+
+% Plot error over time
+figure(3)
+plot(frame_times(1:i), error)
+
+% Save the poses
+save("poses.mat", "all_poses");
+
+% Save the error
+save("error.mat", "error");
+
+% Save the landmarks
+save("landmarks.mat", "landmarks");
+
+function pretty_print(pose, est_pose, frame_times, i, feed_length, full)
     clc;
-    fprintf("      Pose at frame %d\n",i)
-    disp("---                       ---");
-    fprintf("Estimated distance :%.2f\n", norm(est_pose.T))
-    disp("---                       ---");
-    fprintf("Estimated velocity :%.2f\n", 3.6 * norm(est_pose.T) ./ (frame_times(i) - frame_times(i - 1)))
-    disp("---                       ---");
-    disp("Pose")
-    disp(pose.Translation);
-    disp("---                       ---");
-    disp("Rotation")
-    disp(pose.R);
-    disp("---                       ---");
+    fprintf("        frame %d/%d\n", i, feed_length)
+
+    if full
+        disp("---                       ---");
+        fprintf("Estimated distance :%.2f\n", norm(est_pose.T))
+        disp("---                       ---");
+        fprintf("Estimated velocity :%.2f\n", 3.6 * norm(est_pose.T) ./ (frame_times(i) - frame_times(i - 1)))
+        disp("---                       ---");
+        disp("Pose")
+        disp(pose.Translation);
+        disp("---                       ---");
+        disp("Rotation")
+        disp(pose.R);
+        disp("---                       ---");
+    end
+
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
