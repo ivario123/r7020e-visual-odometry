@@ -18,7 +18,7 @@ The feature detection is done using the [SIFT algorithm implemented in matlab](h
 
 ## Feature tracking
 ### Feature matching
-The feature matching is done using the built-in Matlab function](https://se.mathworks.com/help/vision/ref/matchfeatures.html?s_tid=doc_ta)](https://se.mathworks.com/help/vision/ref/matchfeatures.html?s_tid=doc_ta) which simply finds the most features with the most similar feature descriptors.
+The feature matching is done using the built-in [Matlab function](https://se.mathworks.com/help/vision/ref/matchfeatures.html?s_tid=doc_ta)](https://se.mathworks.com/help/vision/ref/matchfeatures.html?s_tid=doc_ta) which simply finds the most features with the most similar feature descriptors.
 ### Feature tracking
 Let each time step in the feed contain a stereo pair of images. 
 For a given time step $i > 1$ match the features in the $leftFrame_{i-1}$ with the features in the $leftFrame_{i}$ and the features in the $rightFrame_{i-1}$ with the features in the $rightFrame_{i}$. After this, we have a set of features that still exist in the left frame and a set of features that still exist in the right frame. Match the features in the left frame with the features in the right frame and vice versa. This will give us a set of features that still exist in both the left and right frames.
