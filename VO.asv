@@ -1,28 +1,21 @@
 close all
 clear
 clc
-
 % Toggle, set this to false if you don't want the 3D view
 view_3D = true;
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                   Load the relevant files                   %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 % Time stamp for each frame
 frame_times = readmatrix("./kitti/00/times.txt");
-
 % Get the camera feeds
 cam0 = imageDatastore("./kitti/00/image_0/*", "FileExtensions", ".png");
 cam1 = imageDatastore("./kitti/00/image_1/*", "FileExtensions", ".png");
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %               Camera calibration data loading               %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 % Get the calibration data
 calib = readmatrix('./kitti/00/calib.txt');
-
 % Collect the projection matricies
 p11 = calib(1, 2:13);
 p11 = reshape(p11, 4, 3);
@@ -30,69 +23,53 @@ p1 = permute(p11, [2, 1]); % Left projection matrix
 p22 = calib(2, 2:13);
 p22 = reshape(p22, 4, 3);
 p2 = permute(p22, [2, 1]); % Right projection matrix
-
 % Projection parameters
 fu1 = p1(1, 1); % Focal lengths
 fv1 = p1(2, 2);
 cu1 = p1(1, 3); % Camera centers
 cv1 = p1(2, 3);
 bx1 = -p1(1, 4) / fu1;
-
 fu2 = p2(1, 1);
 fv2 = p2(2, 2);
 cu2 = p2(1, 3);
 cv2 = p2(2, 3);
 bx2 = -p2(1, 4) / fu2;
-
 T = bx2 - bx1; % Baseline
 f = mean([fu1 fu2 fv1 fv2]);
-
 intrinsics_l = cameraIntrinsics([fu1, fv1], [cu1 cv1], size(readimage(cam0, 1)));
 intrinsics_r = cameraIntrinsics([fu2, fv2], [cu2 cv2], size(readimage(cam1, 1)));
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                   Prepare some state data                   %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 features = [];
 pose = rigidtform3d(eye(3, 3), zeros(1, 3));
 all_poses = [];
 n_frames = length(cam0.Files);
 landmarks = [];
 keepvars = {'landmarks', 'n_frames','all_poses','keepvars','pose','features','intrinsics_l','intrinsics_r','p1','p2','cam0','cam1','view_3D','frame_times'};
-
 for i = 1:n_frames
-
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %               Load images and detect features               %
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
     % Read images
     lf = readimage(cam0, i);
     rf = readimage(cam1, i);
-
     % Undistort images
     lf_rect = undistortImage(lf, intrinsics_l);
     rf_rect = undistortImage(rf, intrinsics_r);
-
     % Find features
     f_l = detectSIFTFeatures(lf_rect);
     f_r = detectSIFTFeatures(rf_rect);
-
     % Extract descriptors
     [l_desc, l_pos] = extractFeatures(lf_rect, f_l, "Method", "SIFT");
     [r_desc, r_pos] = extractFeatures(rf_rect, f_r, "Method", "SIFT");
-
     % Match descriptors
     matched = matchFeatures(l_desc, r_desc);
-
     % If it's not the first iteration we want to match features
     if ~isempty(features)
-        
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                      Match the features                     %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
         % Package the data together neatly
         current_features = struct( ...
             "l_desc", l_desc, ...
@@ -101,20 +78,16 @@ for i = 1:n_frames
             "r_pos", r_pos ...
         );
         old_features = features;
-
         % Track the features that matches between frames
         [features_in_current_space, remaining_old_features, lm, rm] = ...
         find_remaining_points(old_features, current_features);
-
         % Triangulate 3D coordinates in both the old and the new coordinate frame
         features_in_current_space.pos = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
         remaining_old_features.pos = zeros([size(features_in_current_space.l_pos.Location, 1), 3]);
-
         for it = 1:size(features_in_current_space.l_pos.Location, 1)
             remaining_old_features.pos(it, :) = triangulate(remaining_old_features.l_pos(it).Location, remaining_old_features.r_pos(it).Location, p1, p2);
             features_in_current_space.pos(it, :) = triangulate(features_in_current_space.l_pos(it).Location, features_in_current_space.r_pos(it).Location, p1, p2);
         end
-
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                           Odometry                          %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -125,14 +98,12 @@ for i = 1:n_frames
             double(remaining_old_features.pos), ...
             intrinsics_l ...
         );
-
         % Convert relative coordinate system to the world coordinate system
         pose = rigidtform3d(pose.A * rel_pose.A);
-
+        
         % Append the pose to the worldposes
         all_poses = [all_poses
                     pose];
-
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                      Add new landmarks                      %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -159,7 +130,6 @@ for i = 1:n_frames
             % Add the new landmarks to the landmarks array
             landmarks = CreateLandmarksFromFeatures(new_landmarks_l, new_landmarks_r, p1, p2, pose, landmarks);
         end
-
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %                        Visualization                        %
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -253,7 +223,6 @@ save("error.mat", "error");
 
 % Save the landmarks
 save("landmarks.mat", "landmarks");
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                         FUNCTIONS                          %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
