@@ -14,7 +14,7 @@ The pipeline is divided into four parts,
 - landmark insertion.
 
 ### Feature detection
-The feature detection is done using the [SIFT algorithm implemented in matlab](https://se.mathworks.com/help/vision/ref/detectsiftfeatures.html?s_tid=doc_ta)
+The feature detection is done using the [SIFT algorithm implemented in matlab]
 
 ## Feature tracking
 ### Feature matching
@@ -23,11 +23,11 @@ The feature matching is done using the built-in Matlab function](https://se.math
 Let each time step in the feed contain a stereo pair of images. 
 For a given time step $i > 1$ match the features in the $leftFrame_{i-1}$ with the features in the $leftFrame_{i}$ and the features in the $rightFrame_{i-1}$ with the features in the $rightFrame_{i}$. After this, we have a set of features that still exist in the left frame and a set of features that still exist in the right frame. Match the features in the left frame with the features in the right frame and vice versa. This will give us a set of features that still exist in both the left and right frames.
 
-Remove all features from $leftFreame_{i-1}$ and $rightFrame_{i-1}$ that are not in the set of features that still exist in both the left and right frames. And remove all features from $leftFrame_{i}$ and $rightFrame_{i}$ that are not in the set of features that still exist in both the left and right frames.
+Remove all features from $leftFrame_{i-1}$ and $rightFrame_{i-1}$ that are not in the set of features that still exist in both the left and right frames. And remove all features from $leftFrame_{i}$ and $rightFrame_{i}$ that are not in the set of features that still exist in both the left and right frames.
 
 Now we can triangulate the $[x,y,z]$ coordinates in both of the coordinate frames, this is done using the [triangulate function](https://se.mathworks.com/help/vision/ref/triangulate.html?s_tid=doc_ta) in Matlab. 
 ### Pose estimation
-The pose estimation is done using the [P3P algorithm](https://en.wikipedia.org/wiki/Perspective-n-Point) implemented in Matlab. Which returns the pose $P$ estimated in the previous time steps coordinate frame. To translate this to the world coordinate frame we need calculate $P_{world} = P_{i-1}\cdotP_{i}$. This yields the pose of the camera in the world coordinate frame.
+The pose estimation is done using the [P3P algorithm](https://en.wikipedia.org/wiki/Perspective-n-Point) implemented in Matlab. Which returns the pose $P$ estimated in the previous time steps coordinate frame. To translate this to the world coordinate frame we need calculate $P_{world} = P_{i-1}P_{i}$. This yields the pose of the camera in the world coordinate frame.
 
 ### Landmark insertion
 The landmarks are triangulated from feature matches between the left and right frames. The landmarks are inserted into the world coordinate frame. The landmarks are inserted into the world coordinate frame by calculating the pose of the camera in the world coordinate frame and then transforming the landmarks from the camera coordinate frame to the world coordinate frame.
@@ -36,9 +36,9 @@ The landmarks are triangulated from feature matches between the left and right f
 ## Visualisation
 The visualisation is done in multiple steps,
 - Feature translation and new feature visualization in the left frame.
-- 2d mapping of the path of the camera in the left frame and the ground truth path.
-- mapping of the 2d pose error of the camera in the left frame and the ground truth pose.
-- mapping of the 3d pose of the camera and the landmarks in the world coordinate frame.
+- 2D mapping of the path of the camera in the left frame and the ground truth path.
+- mapping of the 2D pose error of the camera in the left frame and the ground truth pose.
+- mapping of the 3D pose of the camera and the landmarks in the world coordinate frame.
 
 ## Improvements
 
