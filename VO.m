@@ -1,7 +1,6 @@
 close all
 clear
 clc
-close all
 % Toggle, set this to false if you don't want the 3d view
 view_3d = true;
 
@@ -165,7 +164,7 @@ for i = 1:n_frames
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
         % Only log things to the screen every nth frame
-        if mod(i, 50) == 0
+        if mod(i, 100) == 0
             % Now we can display results
             pretty_print(pose, est_pose, frame_times, i, n_frames, true);
             mkdir img
@@ -181,21 +180,21 @@ for i = 1:n_frames
 
             % Plot error over time
             figure(3);
+            plot(frame_times(1:size(error,2)), error);
+            saveas(gcf,sprintf('./img/%d/error.png',i));
             title('Error in x,z plane over time')
             xlabel('Time[s]')
             ylabel('Error[m]')
-            plot(frame_times(1:i), error);
-            saveas(gcf,sprintf('./img/%d/error.png',i));
 
             if view_3d
                 % Plot the landmarksx
                 figure(4);
-                title('Error in x,z plane over time')
-                xlabel('X coord[m]')
-                ylabel('Y coord[m]')
-                zlabel('Z coord[m]')
                 ShowPoseAndLandmarks(all_poses, landmarks, i - 1);
                 saveas(gcf,sprintf('./img/%d/3d_map.png',i))
+                title('Error in x,z plane over time')
+                xlabel('X [m]')
+                ylabel('Y [m]')
+                zlabel('Z [m]')
             end
             close all
         else
