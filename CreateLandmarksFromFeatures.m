@@ -7,7 +7,7 @@ function landmarks = CreateLandmarksFromFeatures(features_l,features_r,intrinsic
 
   landmarks = zeros(size(features_l, 2),3);
   % Just keep every tenth landmark
-  for i = 1:10:size(features_l, 1)
+  for i = 1:2:size(features_l, 1)
     % Triangulate the points
 
     coords = triangulate(features_l(i, :), features_r(i, :), intrinsics_l, intrinsics_r);

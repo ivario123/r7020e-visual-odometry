@@ -3,7 +3,7 @@ clear
 clc
 close all
 % Toggle, set this to false if you don't want the 3d view
-view_3d = false;
+view_3d = true;
 
 
 
@@ -59,6 +59,7 @@ pose = rigidtform3d(eye(3, 3), zeros(1, 3));
 all_poses = []; %zeros(length(cam0.Files), 3);
 n_frames = length(cam0.Files);
 landmarks = [];
+keepvars = {'landmarks', 'n_frames','all_poses','keepvars','pose','features','intrinsics_l','intrinsics_r','p1','p2','cam0','cam1','view_3d','frame_times'};
 
 for i = 1:n_frames
 
@@ -164,7 +165,7 @@ for i = 1:n_frames
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
         % Only log things to the screen every nth frame
-        if mod(i, 200) == 0
+        if mod(i, 50) == 0
             % Now we can display results
             pretty_print(pose, est_pose, frame_times, i, n_frames, true);
             mkdir img
@@ -229,6 +230,8 @@ for i = 1:n_frames
         "l_pos", l_pos, ...
         "r_pos", r_pos ...
     );
+
+    clearvars('-except', keepvars{:});
 
 end
 

@@ -4,7 +4,7 @@ function Error = PlotOnMap(Poses,end_index)
     
     T_true = zeros(1,3);
     T_poses = zeros(1,3);
-    Error = zeros(1,end_index);
+    Error = zeros(1,p_size);
     for i = 1:p_size
     
         %true_pose = [truth(i,1:4); truth(i,5:8); truth(i,9:12)];
